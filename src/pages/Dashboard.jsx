@@ -1,10 +1,9 @@
 // src/pages/Dashboard.jsx
 import React, { useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   Laptop, CheckCircle, Wrench, ArrowUpRight,
-  User, Clock, FileCheck, ArrowDownCircle, Activity, AlertTriangle,
-  CalendarDays, HardDrive, Users, Server, Monitor, ExternalLink
+  User, Clock, FileCheck, ArrowDownCircle, Activity, AlertTriangle
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -14,21 +13,20 @@ import { useData } from '../context/DataContext';
 
 const COLORS_PIE = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6'];
 
-const StatCard = ({ title, value, icon, change, changeType, bgColor, onClick, linkTo }) => {
-  const navigate = useNavigate();
-  const handleClick = () => {
-    if (onClick) onClick();
-    else if (linkTo) navigate(linkTo);
-  };
+const StatCard = ({ title, value, icon, detail, bgColor, linkTo }) => {
   return (
-    <div onClick={handleClick} className="bg-white p-6 rounded-xl shadow-sm border border-solid border-slate-200 flex items-center justify-between transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 cursor-pointer">
+    <Link
+      to={linkTo}
+      aria-label={`${title}: ${value}. ${detail}`}
+      className="bg-white p-6 rounded-xl shadow-sm border border-solid border-slate-200 flex items-center justify-between transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 no-underline"
+    >
       <div className="space-y-2 text-left">
         <p className="text-xs font-black text-slate-400 uppercase tracking-wider m-0">{title}</p>
         <h3 className="text-2xl font-black text-slate-800 m-0 tracking-tight">{value}</h3>
-        {change && <p className={`text-xs m-0 font-bold flex items-center gap-1 ${changeType === 'positive' ? 'text-emerald-600' : 'text-rose-600'}`}><span>{change}</span> <span className="text-slate-400 font-medium">este mes</span></p>}
+        <p className="text-xs m-0 font-medium text-slate-500">{detail}</p>
       </div>
       <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-xl shadow-sm border border-solid ${bgColor}`}>{icon}</div>
-    </div>
+    </Link>
   );
 };
 
@@ -66,7 +64,7 @@ const Dashboard = () => {
   
   const actasActivas = asignaciones.filter(a => a.estado_acta !== 'Anulada').length;
   
-  const tasaDisponibilidad = totalActivos > 0 ? ((activosOperativos / totalActivos) * 100).toFixed(1) : "100.0";
+  const tasaDisponibilidad = totalActivos > 0 ? `${((activosOperativos / totalActivos) * 100).toFixed(1)}%` : '—';
 
   // ============================================================
   // GRÁFICO DE BARRAS (Categorías) CORREGIDO
@@ -200,10 +198,10 @@ const Dashboard = () => {
 
       {/* TARJETAS MÉTRICAS */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-        <StatCard title="Total Inventario" value={totalActivos} icon={<Laptop className="text-blue-600" size={18} />} change="+12" changeType="positive" bgColor="bg-blue-50/50 border-blue-100" linkTo="/activos" />
-        <StatCard title="Disponibilidad Operativa" value={`${tasaDisponibilidad}%`} icon={<CheckCircle className="text-emerald-600" size={18} />} change="Óptimo" changeType="positive" bgColor="bg-emerald-50/50 border-emerald-100" linkTo="/activos" />
-        <StatCard title="Equipos en Taller" value={activosMantenimiento} icon={<Wrench className="text-amber-600" size={18} />} change="+1" changeType="negative" bgColor="bg-amber-50/50 border-amber-100" linkTo="/cronogramas" />
-        <StatCard title="Actas de Custodia" value={actasActivas} icon={<FileCheck className="text-indigo-600" size={18} />} change="Al día" changeType="positive" bgColor="bg-indigo-50/50 border-indigo-100" linkTo="/asignaciones" />
+        <StatCard title="Total Inventario" value={totalActivos} detail="Activos registrados" icon={<Laptop className="text-blue-600" size={18} />} bgColor="bg-blue-50/50 border-blue-100" linkTo="/activos" />
+        <StatCard title="Disponibilidad Operativa" value={tasaDisponibilidad} detail={totalActivos > 0 ? `${activosOperativos} de ${totalActivos} activos operativos` : 'Sin activos registrados'} icon={<CheckCircle className="text-emerald-600" size={18} />} bgColor="bg-emerald-50/50 border-emerald-100" linkTo="/activos" />
+        <StatCard title="Equipos en Taller" value={activosMantenimiento} detail="Activos en mantenimiento" icon={<Wrench className="text-amber-600" size={18} />} bgColor="bg-amber-50/50 border-amber-100" linkTo="/cronogramas" />
+        <StatCard title="Actas de Custodia" value={actasActivas} detail="Actas no anuladas" icon={<FileCheck className="text-indigo-600" size={18} />} bgColor="bg-indigo-50/50 border-indigo-100" linkTo="/asignaciones" />
       </div>
 
       {/* GRÁFICOS */}
