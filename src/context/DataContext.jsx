@@ -2262,7 +2262,7 @@ const cargarMovimientos = async (filtros = {}, page = 1) => {
   }
 };
 
-const registrarSalidaCarrito = async (items, motivo = '') => {
+const registrarSalidaCarrito = async (items, observacion = '') => {
   try {
     const payload = {
       items: items.map(item => ({
@@ -2270,7 +2270,7 @@ const registrarSalidaCarrito = async (items, motivo = '') => {
         cantidad: item.cantidad,
         color: item.color || null
       })),
-      motivo: motivo || 'Salida por carrito'
+      observacion: observacion || 'Salida por carrito'
     };
     const response = await api.post('/consumibles/salida', payload);
     await cargarConsumibles(consumiblesPagination.current_page);

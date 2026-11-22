@@ -69,6 +69,8 @@ const Inventario = () => {
   const [cantidadModalItem, setCantidadModalItem] = useState(null);
   const [cantidadModalColorIndex, setCantidadModalColorIndex] = useState(null);
   const [cantidadModalValor, setCantidadModalValor] = useState(1);
+  const [cantidadModalTipo, setCantidadModalTipo] = useState('ingreso');
+  const [cantidadModalObservacion, setCantidadModalObservacion] = useState('');
 
   // Cargar datos iniciales
   useEffect(() => {
@@ -119,7 +121,7 @@ const Inventario = () => {
     return movimientos.filter(item => {
       const matchSearch =
         (item.consumible?.nombre || '').toLowerCase().includes(movimientoSearchTerm.toLowerCase()) ||
-        (item.motivo || '').toLowerCase().includes(movimientoSearchTerm.toLowerCase()) ||
+        (item.observacion || '').toLowerCase().includes(movimientoSearchTerm.toLowerCase()) ||
         (item.color || '').toLowerCase().includes(movimientoSearchTerm.toLowerCase());
       const matchTipo = movimientoTipoFilter === '' || item.tipo_movimiento === movimientoTipoFilter;
       return matchSearch && matchTipo;
@@ -164,10 +166,12 @@ const Inventario = () => {
   // ============================================================
   // MODAL DE CANTIDAD & ACCIONES DE STOCK
   // ============================================================
-  const abrirModalCantidad = (item, colorIndex = null) => {
+  const abrirModalCantidad = (item, colorIndex = null, tipo = 'ingreso') => {
     setCantidadModalItem(item);
     setCantidadModalColorIndex(colorIndex);
     setCantidadModalValor(1);
+    setCantidadModalTipo(tipo);
+    setCantidadModalObservacion('');
     setCantidadModalOpen(true);
   };
 
@@ -175,9 +179,10 @@ const Inventario = () => {
     setCantidadModalOpen(false);
     setCantidadModalItem(null);
     setCantidadModalColorIndex(null);
+    setCantidadModalObservacion('');
   };
 
-  const confirmarAgregarCantidad = async () => {
+  const confirmarCambioCantidad = async () => {
     const cantidad = cantidadModalValor;
     if (cantidad <= 0) {
       alert('La cantidad debe ser mayor a 0.');
@@ -185,23 +190,31 @@ const Inventario = () => {
     }
     const item = cantidadModalItem;
     if (!item) return;
+    const cantidadActual = cantidadModalColorIndex !== null
+      ? parseInt(item.colores[cantidadModalColorIndex]?.cantidad || 0)
+      : parseInt(item.cantidad || 0);
+    const cantidadCambio = cantidadModalTipo === 'ingreso' ? cantidad : -cantidad;
+    if (cantidadCambio < 0 && cantidad > cantidadActual) {
+      alert('Stock insuficiente.');
+      return;
+    }
 
     if (cantidadModalColorIndex !== null) {
       const nuevosColores = [...item.colores];
       const idx = cantidadModalColorIndex;
       const colorActual = nuevosColores[idx];
       if (!colorActual) return;
-      const nuevaCantidad = parseInt(colorActual.cantidad || 0) + cantidad;
+      const nuevaCantidad = parseInt(colorActual.cantidad || 0) + cantidadCambio;
       nuevosColores[idx] = { ...colorActual, cantidad: nuevaCantidad };
       await actualizarConsumible(item.id, {
         colores: nuevosColores,
-        motivo: `Ajuste: +${cantidad} unds (${colorActual.color})`
+        observacion: cantidadModalObservacion.trim() || null
       });
     } else {
-      const nuevaCantidad = (item.cantidad || 0) + cantidad;
+      const nuevaCantidad = cantidadActual + cantidadCambio;
       await actualizarConsumible(item.id, {
         cantidad: nuevaCantidad,
-        motivo: `Ajuste: +${cantidad} unds`
+        observacion: cantidadModalObservacion.trim() || null
       });
     }
     cerrarModalCantidad();
@@ -243,15 +256,16 @@ const Inventario = () => {
       agregarAlCarrito(itemCarrito);
     }
 
-    const accion = alCarrito ? 'Salida a carrito' : 'Reducción de stock';
-    const sufijo = colorName ? ` (${colorName})` : '';
+    const observacion = alCarrito
+      ? `Salida a carrito${colorName ? ` (${colorName})` : ''}`
+      : null;
 
     await actualizarConsumible(item.id, isColorMode ? {
       colores: nuevosColores,
-      motivo: `${accion}: ${cantidadCambio}${sufijo}`
+      observacion
     } : {
       cantidad: nuevaCantidad,
-      motivo: `${accion}: ${cantidadCambio}${sufijo}`
+      observacion
     });
 
     await refreshMovimientos();
@@ -350,7 +364,7 @@ const Inventario = () => {
       Cantidad: item.cantidad,
       'Cant. Anterior': item.cantidad_anterior ?? 'N/A',
       'Cant. Nueva': item.cantidad_nueva ?? 'N/A',
-      Motivo: item.motivo || 'N/A',
+      Observación: item.observacion || 'N/A',
       Usuario: item.usuario?.name || 'Sistema',
     }));
     const hoja = XLSX.utils.json_to_sheet(data);
@@ -472,7 +486,7 @@ const Inventario = () => {
                             {!esAgrupador && (
                               <>
                                 <button onClick={() => abrirModalCantidad(item)} className="p-1.5 text-emerald-600 hover:bg-emerald-100 rounded-lg transition-colors" title="Añadir stock"><Plus size={15} /></button>
-                                <button onClick={() => modificarStockRapido(item, -1)} className="p-1.5 text-rose-600 hover:bg-rose-100 rounded-lg transition-colors" title="Restar stock"><Minus size={15} /></button>
+                                <button onClick={() => abrirModalCantidad(item, null, 'resta')} disabled={Number(item.cantidad) <= 0} className="p-1.5 text-rose-600 hover:bg-rose-100 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed" title="Restar stock"><Minus size={15} /></button>
                                 <button onClick={() => modificarStockRapido(item, -1, null, true)} className="p-1.5 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors" title="Mover a carrito"><ShoppingCart size={15} /></button>
                               </>
                             )}
@@ -512,7 +526,7 @@ const Inventario = () => {
                                     </div>
                                     <div className="col-span-3 flex items-center justify-end gap-1">
                                       <button onClick={() => abrirModalCantidad(item, idx)} className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-md transition-colors" title="Añadir"><Plus size={14} /></button>
-                                      <button onClick={() => modificarStockRapido(item, -1, idx)} className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-md transition-colors" title="Restar"><Minus size={14} /></button>
+                                      <button onClick={() => abrirModalCantidad(item, idx, 'resta')} disabled={!parseInt(colorItem.cantidad)} className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed" title="Restar"><Minus size={14} /></button>
                                       <button onClick={() => modificarStockRapido(item, -1, idx, true)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-md transition-colors" title="A carrito"><ShoppingCart size={14} /></button>
                                     </div>
                                   </div>
@@ -552,7 +566,7 @@ const Inventario = () => {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
             <input
               type="text"
-              placeholder="Rastrear activo, color o motivo..."
+              placeholder="Rastrear activo, color u observación..."
               value={movimientoSearchTerm}
               onChange={(e) => setMovimientoSearchTerm(e.target.value)}
               className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
@@ -582,7 +596,7 @@ const Inventario = () => {
                   <th className="py-3 px-4 text-center">Variación</th>
                   <th className="py-3 px-4 text-center hidden lg:table-cell">Previo</th>
                   <th className="py-3 px-4 text-center hidden lg:table-cell">Actual</th>
-                  <th className="py-3 px-4 hidden md:table-cell">Motivo (Log)</th>
+                  <th className="py-3 px-4 hidden md:table-cell">Observación</th>
                   <th className="py-3 px-4 hidden xl:table-cell">Operador</th>
                 </tr>
               </thead>
@@ -616,7 +630,7 @@ const Inventario = () => {
                         </td>
                         <td className="py-3 px-4 text-center hidden lg:table-cell text-slate-500 text-xs">{item.cantidad_anterior ?? '—'}</td>
                         <td className="py-3 px-4 text-center hidden lg:table-cell text-slate-500 text-xs">{item.cantidad_nueva ?? '—'}</td>
-                        <td className="py-3 px-4 hidden md:table-cell text-slate-600 text-xs max-w-xs truncate" title={item.motivo}>{item.motivo || '—'}</td>
+                        <td className="py-3 px-4 hidden md:table-cell text-slate-600 text-xs max-w-xs truncate" title={item.observacion}>{item.observacion || '—'}</td>
                         <td className="py-3 px-4 hidden xl:table-cell text-slate-600 text-xs font-medium">{item.usuario?.name || 'Sistema'}</td>
                       </tr>
                     );
@@ -722,13 +736,15 @@ const Inventario = () => {
         </div>
       </div>
 
-      {/* Modal para agregar cantidad */}
+      {/* Modal para ajustar cantidad */}
       {cantidadModalOpen && cantidadModalItem && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
           <div className="bg-white w-full max-w-sm rounded-2xl shadow-2xl border border-slate-200 overflow-hidden transform transition-all">
             <div className="px-5 py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
               <div>
-                <h3 className="text-sm font-extrabold text-slate-800">Ajuste de Entrada</h3>
+                <h3 className="text-sm font-extrabold text-slate-800">
+                  {cantidadModalTipo === 'ingreso' ? 'Ajuste de Entrada' : 'Ajuste de Salida'}
+                </h3>
                 <p className="text-xs font-medium text-slate-500 mt-0.5">
                   {cantidadModalItem.nombre}
                   {cantidadModalColorIndex !== null && (
@@ -745,7 +761,9 @@ const Inventario = () => {
 
             <div className="p-6 space-y-6">
               <div className="flex flex-col items-center gap-3">
-                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Unidades a ingresar</p>
+                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                  Unidades a {cantidadModalTipo === 'ingreso' ? 'ingresar' : 'restar'}
+                </p>
                 <div className="flex items-center gap-4">
                   <button
                     onClick={() => setCantidadModalValor(prev => Math.max(1, prev - 1))}
@@ -756,15 +774,31 @@ const Inventario = () => {
                   <input
                     type="number"
                     min="1"
+                    max={cantidadModalTipo === 'resta'
+                      ? (cantidadModalColorIndex !== null
+                        ? parseInt(cantidadModalItem.colores[cantidadModalColorIndex]?.cantidad || 0)
+                        : parseInt(cantidadModalItem.cantidad || 0))
+                      : undefined}
                     value={cantidadModalValor}
                     onChange={(e) => {
                       const val = parseInt(e.target.value);
-                      if (!isNaN(val) && val >= 1) setCantidadModalValor(val);
+                      const stock = cantidadModalColorIndex !== null
+                        ? parseInt(cantidadModalItem.colores[cantidadModalColorIndex]?.cantidad || 0)
+                        : parseInt(cantidadModalItem.cantidad || 0);
+                      if (!isNaN(val) && val >= 1) {
+                        setCantidadModalValor(cantidadModalTipo === 'resta' ? Math.min(val, stock) : val);
+                      }
                     }}
                     className="w-20 text-center text-2xl font-black text-slate-800 border-none bg-slate-50 rounded-xl py-2 focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition-shadow"
                   />
                   <button
-                    onClick={() => setCantidadModalValor(prev => prev + 1)}
+                    onClick={() => setCantidadModalValor(prev => {
+                      if (cantidadModalTipo !== 'resta') return prev + 1;
+                      const stock = cantidadModalColorIndex !== null
+                        ? parseInt(cantidadModalItem.colores[cantidadModalColorIndex]?.cantidad || 0)
+                        : parseInt(cantidadModalItem.cantidad || 0);
+                      return Math.min(prev + 1, stock);
+                    })}
                     className="w-10 h-10 flex items-center justify-center bg-slate-100 hover:bg-slate-200 rounded-xl text-xl font-bold text-slate-600 transition-colors shadow-sm"
                   >
                     +
@@ -772,12 +806,27 @@ const Inventario = () => {
                 </div>
               </div>
 
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-slate-600" htmlFor="observacion-movimiento">
+                  Observaciones
+                </label>
+                <textarea
+                  id="observacion-movimiento"
+                  value={cantidadModalObservacion}
+                  onChange={(e) => setCantidadModalObservacion(e.target.value)}
+                  rows="3"
+                  maxLength="2000"
+                  placeholder="Escriba una observación para este movimiento (opcional)"
+                  className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                />
+              </div>
+
               <div className="flex justify-end gap-2 pt-2">
                 <button type="button" onClick={cerrarModalCantidad} className="px-4 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors">
                   Cancelar
                 </button>
-                <button type="button" onClick={confirmarAgregarCantidad} className="px-5 py-2.5 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-md transition-all active:scale-95">
-                  Confirmar Ingreso
+                <button type="button" onClick={confirmarCambioCantidad} className={`px-5 py-2.5 text-sm font-bold text-white rounded-xl shadow-md transition-all active:scale-95 ${cantidadModalTipo === 'ingreso' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-rose-600 hover:bg-rose-700'}`}>
+                  Confirmar {cantidadModalTipo === 'ingreso' ? 'Ingreso' : 'Retiro'}
                 </button>
               </div>
             </div>
