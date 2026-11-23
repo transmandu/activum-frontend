@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useData } from '../context/DataContext';
 import { Calendar, Clock, Plus, Edit2, Trash2, X } from 'lucide-react';
 import ModalTarea from '../components/modals/ModalTarea';
@@ -112,6 +112,8 @@ const ChevronDownIcon = ({ className }) => (
 );
 
 const STORAGE_KEY_VALORES = 'tareas_valores_rutinarias';
+const STORAGE_KEY_VALORES_POR_SEMANA = 'tareas_valores_rutinarias_por_semana';
+const STORAGE_KEY_SEMANA_VALORES = 'tareas_rutinarias_semana_valores';
 const STORAGE_KEY_SINCRONIZACION = 'tareas_rutinarias_backend_sincronizadas';
 
 const leerJsonLocal = (key, fallback) => {
@@ -149,6 +151,17 @@ const fusionarPorId = (remotos = [], locales = []) => {
   return [...resultado.values()];
 };
 
+const fusionarValoresPorSemana = (remotos = {}, locales = {}) => {
+  const resultado = { ...remotos };
+  Object.entries(locales).forEach(([semana, valores]) => {
+    resultado[semana] = {
+      ...(resultado[semana] || {}),
+      ...(valores || {}),
+    };
+  });
+  return resultado;
+};
+
 const fusionarDatosRutinarios = (remotos, locales) => ({
   secciones_rutinarias: fusionarPorId(
     remotos.secciones_rutinarias || [],
@@ -158,6 +171,11 @@ const fusionarDatosRutinarios = (remotos, locales) => ({
     ...(remotos.valores_rutinarias || {}),
     ...(locales.valores_rutinarias || {}),
   },
+  valores_por_semana: fusionarValoresPorSemana(
+    remotos.valores_por_semana || {},
+    locales.valores_por_semana || {}
+  ),
+  semana_valores: locales.semana_valores || remotos.semana_valores || '',
   historico_reportes: fusionarPorId(
     remotos.historico_reportes || [],
     locales.historico_reportes || []
@@ -171,6 +189,28 @@ const normalizarListaDiscos = (valor) => (
     .map(disco => disco.trim().toUpperCase())
     .filter(Boolean)
 );
+
+const obtenerInicioSemanaTimestamp = (semanaTexto) => {
+  const coincidencia = String(semanaTexto || '').match(/(\d{2})\/(\d{2})\/(\d{4})/);
+  if (!coincidencia) return 0;
+  return new Date(
+    Number(coincidencia[3]),
+    Number(coincidencia[2]) - 1,
+    Number(coincidencia[1])
+  ).getTime();
+};
+
+const obtenerRangoSemana = () => {
+  const hoy = new Date();
+  const diaActual = hoy.getDay();
+  const distanciaAlLunes = diaActual === 0 ? -6 : 1 - diaActual;
+  const lunes = new Date(hoy);
+  lunes.setDate(hoy.getDate() + distanciaAlLunes);
+  const domingo = new Date(lunes);
+  domingo.setDate(lunes.getDate() + 6);
+  const fFmt = (d) => d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  return `Semana del ${fFmt(lunes)} al ${fFmt(domingo)}`;
+};
 
 const NOMBRES_TIPOS_SECCION = {
   solo_observacion: 'Observaciones',
@@ -199,22 +239,30 @@ export default function Tareas() {
   const datosLocalesRef = useRef(null);
   if (datosLocalesRef.current === null) {
     const valoresLocales = leerJsonLocal(STORAGE_KEY_VALORES, {});
+    const valoresPorSemanaLocales = leerJsonLocal(STORAGE_KEY_VALORES_POR_SEMANA, {});
+    const semanaValoresLocal = leerJsonLocal(STORAGE_KEY_SEMANA_VALORES, '');
     const seccionesLocales = leerJsonLocal('tareas_secciones_rutinarias', SECCIONES_BITACORA_INICIAL);
     const reportesLocales = leerJsonLocal('tareas_historico_reportes', []);
     datosLocalesRef.current = {
       valores_rutinarias: valoresLocales.value && typeof valoresLocales.value === 'object' && !Array.isArray(valoresLocales.value)
         ? valoresLocales.value
         : {},
+      valores_por_semana: valoresPorSemanaLocales.value && typeof valoresPorSemanaLocales.value === 'object' && !Array.isArray(valoresPorSemanaLocales.value)
+        ? valoresPorSemanaLocales.value
+        : {},
+      semana_valores: typeof semanaValoresLocal.value === 'string' ? semanaValoresLocal.value : '',
       secciones_rutinarias: Array.isArray(seccionesLocales.value) ? seccionesLocales.value : SECCIONES_BITACORA_INICIAL,
       historico_reportes: Array.isArray(reportesLocales.value) ? reportesLocales.value : [],
-      hayDatosLocales: valoresLocales.stored || seccionesLocales.stored || reportesLocales.stored,
+      hayDatosLocales: valoresLocales.stored || valoresPorSemanaLocales.stored || seccionesLocales.stored || reportesLocales.stored,
     };
   }
 
   const [tabActiva, setTabActiva] = useState('rutinarias');
   const [valores, setValores] = useState(datosLocalesRef.current.valores_rutinarias);
+  const [valoresPorSemana, setValoresPorSemana] = useState(datosLocalesRef.current.valores_por_semana);
   const [loading, setLoading] = useState(false);
   const [historicoReportes, setHistoricoReportes] = useState(datosLocalesRef.current.historico_reportes);
+  const [semanaSeleccionada, setSemanaSeleccionada] = useState('');
   const [estadoPersistencia, setEstadoPersistencia] = useState('cargando');
   const [rutinasHidratadas, setRutinasHidratadas] = useState(false);
   const [intentoCargaRutinas, setIntentoCargaRutinas] = useState(0);
@@ -252,6 +300,11 @@ export default function Tareas() {
   const temporizadorGuardadoRutinasRef = useRef(null);
   const guardarTareasRutinariasRef = useRef(guardarTareasRutinarias);
   const cargarTareasRutinariasRef = useRef(cargarTareasRutinarias);
+  const valoresPorSemanaRef = useRef(valoresPorSemana);
+
+  useEffect(() => {
+    valoresPorSemanaRef.current = valoresPorSemana;
+  }, [valoresPorSemana]);
 
   useEffect(() => {
     guardarTareasRutinariasRef.current = guardarTareasRutinarias;
@@ -261,13 +314,26 @@ export default function Tareas() {
     cargarTareasRutinariasRef.current = cargarTareasRutinarias;
   }, [cargarTareasRutinarias]);
 
-  const guardarRutinasEnCola = (datos) => {
+  const guardarRutinasEnCola = useCallback((datos) => {
+    const semanaValores = datos.semana_valores || obtenerRangoSemana();
+    const valoresActuales = datos.valores_rutinarias || {};
+    const valoresPorSemanaActualizados = {
+      ...valoresPorSemanaRef.current,
+      ...(datos.valores_por_semana || {}),
+      [semanaValores]: valoresActuales,
+    };
     const guardado = colaGuardadoRutinasRef.current
       .catch(() => undefined)
-      .then(() => guardarTareasRutinariasRef.current({ ...datos, inicializado: true }));
+      .then(() => guardarTareasRutinariasRef.current({
+        ...datos,
+        valores_rutinarias: valoresActuales,
+        valores_por_semana: valoresPorSemanaActualizados,
+        semana_valores: semanaValores,
+        inicializado: true,
+      }));
     colaGuardadoRutinasRef.current = guardado;
     return guardado;
-  };
+  }, []);
 
   const guardarMarcaSincronizacion = () => {
     try {
@@ -360,6 +426,7 @@ export default function Tareas() {
         const sincronizadoAntes = localStorage.getItem(STORAGE_KEY_SINCRONIZACION) === 'true';
         let datos;
         let debeGuardar = false;
+        const semanaActual = obtenerRangoSemana();
 
         if (remoto.inicializado) {
           if (!sincronizadoAntes && local.hayDatosLocales) {
@@ -369,9 +436,14 @@ export default function Tareas() {
             datos = {
               secciones_rutinarias: Array.isArray(remoto.secciones_rutinarias) ? remoto.secciones_rutinarias : [],
               valores_rutinarias: remoto.valores_rutinarias || {},
+              valores_por_semana: remoto.valores_por_semana || {},
+              semana_valores: remoto.semana_valores || '',
               historico_reportes: Array.isArray(remoto.historico_reportes) ? remoto.historico_reportes : [],
               inicializado: true,
             };
+          }
+          if (!remoto.valores_por_semana || remoto.semana_valores !== semanaActual) {
+            debeGuardar = true;
           }
         } else {
           datos = fusionarDatosRutinarios(
@@ -383,14 +455,35 @@ export default function Tareas() {
           debeGuardar = true;
         }
 
-        setSeccionesRutinarias(datos.secciones_rutinarias);
-        setValores(datos.valores_rutinarias);
-        setHistoricoReportes(datos.historico_reportes);
+        const valoresPorSemanaDatos = { ...(datos.valores_por_semana || {}) };
+        const semanaValoresAnterior = datos.semana_valores || semanaActual;
+        const valoresAnteriores = datos.valores_rutinarias || {};
+        if (
+          !Object.prototype.hasOwnProperty.call(valoresPorSemanaDatos, semanaValoresAnterior) &&
+          Object.keys(valoresAnteriores).length > 0
+        ) {
+          valoresPorSemanaDatos[semanaValoresAnterior] = valoresAnteriores;
+        }
+
+        const valoresSemanaActual = Object.prototype.hasOwnProperty.call(valoresPorSemanaDatos, semanaActual)
+          ? valoresPorSemanaDatos[semanaActual]
+          : (semanaValoresAnterior === semanaActual ? valoresAnteriores : {});
+        const datosHidratados = {
+          ...datos,
+          valores_rutinarias: valoresSemanaActual,
+          valores_por_semana: valoresPorSemanaDatos,
+          semana_valores: semanaActual,
+        };
+
+        setSeccionesRutinarias(datosHidratados.secciones_rutinarias);
+        setValores(valoresSemanaActual);
+        setValoresPorSemana(valoresPorSemanaDatos);
+        setHistoricoReportes(datosHidratados.historico_reportes);
         setRutinasHidratadas(true);
 
         if (debeGuardar) {
           setEstadoPersistencia('guardando');
-          await guardarRutinasEnCola(datos);
+          await guardarRutinasEnCola(datosHidratados);
           if (cancelado) return;
         }
 
@@ -408,11 +501,22 @@ export default function Tareas() {
     return () => {
       cancelado = true;
     };
-  }, [intentoCargaRutinas]);
+  }, [intentoCargaRutinas, guardarRutinasEnCola]);
+
+  useEffect(() => {
+    if (!rutinasHidratadas) return;
+    const semanaActual = obtenerRangoSemana();
+    setValoresPorSemana(prev => ({
+      ...prev,
+      [semanaActual]: valores,
+    }));
+  }, [valores, rutinasHidratadas]);
 
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY_VALORES, JSON.stringify(valores));
+      localStorage.setItem(STORAGE_KEY_VALORES_POR_SEMANA, JSON.stringify(valoresPorSemana));
+      localStorage.setItem(STORAGE_KEY_SEMANA_VALORES, JSON.stringify(obtenerRangoSemana()));
       localStorage.setItem('tareas_secciones_rutinarias', JSON.stringify(seccionesRutinarias));
       localStorage.setItem('tareas_historico_reportes', JSON.stringify(historicoReportes));
     } catch (error) {
@@ -423,11 +527,13 @@ export default function Tareas() {
 
     datosLocalesRef.current = {
       valores_rutinarias: valores,
+      valores_por_semana: valoresPorSemana,
+      semana_valores: obtenerRangoSemana(),
       secciones_rutinarias: seccionesRutinarias,
       historico_reportes: historicoReportes,
       hayDatosLocales: datosLocalesRef.current.hayDatosLocales,
     };
-  }, [valores, seccionesRutinarias, historicoReportes, rutinasHidratadas]);
+  }, [valores, valoresPorSemana, seccionesRutinarias, historicoReportes, rutinasHidratadas]);
 
   useEffect(() => () => {
     if (temporizadorGuardadoRutinasRef.current === null) return;
@@ -438,11 +544,13 @@ export default function Tareas() {
     guardarRutinasEnCola({
       secciones_rutinarias: snapshotLocal.secciones_rutinarias,
       valores_rutinarias: snapshotLocal.valores_rutinarias,
+      valores_por_semana: snapshotLocal.valores_por_semana,
+      semana_valores: snapshotLocal.semana_valores,
       historico_reportes: snapshotLocal.historico_reportes,
     })
       .then(guardarMarcaSincronizacion)
       .catch(error => console.error('No se pudieron guardar los cambios pendientes al salir:', error));
-  }, []);
+  }, [guardarRutinasEnCola]);
 
   useEffect(() => {
     if (!rutinasHidratadas) return undefined;
@@ -456,6 +564,8 @@ export default function Tareas() {
         await guardarRutinasEnCola({
           secciones_rutinarias: seccionesRutinarias,
           valores_rutinarias: valores,
+          valores_por_semana: valoresPorSemana,
+          semana_valores: obtenerRangoSemana(),
           historico_reportes: historicoReportes,
         });
         guardarMarcaSincronizacion();
@@ -474,19 +584,7 @@ export default function Tareas() {
         temporizadorGuardadoRutinasRef.current = null;
       }
     };
-  }, [seccionesRutinarias, valores, historicoReportes, rutinasHidratadas]);
-
-  const obtenerRangoSemana = () => {
-    const hoy = new Date();
-    const diaActual = hoy.getDay();
-    const distanciaAlLunes = diaActual === 0 ? -6 : 1 - diaActual;
-    const lunes = new Date(hoy);
-    lunes.setDate(hoy.getDate() + distanciaAlLunes);
-    const domingo = new Date(lunes);
-    domingo.setDate(lunes.getDate() + 6);
-    const fFmt = (d) => d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' });
-    return `Semana del ${fFmt(lunes)} al ${fFmt(domingo)}`;
-  };
+  }, [seccionesRutinarias, valores, valoresPorSemana, historicoReportes, rutinasHidratadas, guardarRutinasEnCola]);
 
   const toggleNodo = (id) => {
     setNodosDesplegados(prev => ({ ...prev, [id]: !prev[id] }));
@@ -767,6 +865,7 @@ export default function Tareas() {
   // ============================================================
   const handleGuardarRutinarias = async (e) => {
     e.preventDefault();
+    if (!esSemanaActualSeleccionada) return;
     if (!rutinasHidratadas) {
       alert('Las tareas rutinarias aún no se han sincronizado. Reintente cuando se restablezca la conexión.');
       return;
@@ -788,19 +887,12 @@ export default function Tareas() {
       const reportesActualizados = [nuevoReporte, ...historicoReportes];
       await sincronizarSnapshotRutinas({
         secciones_rutinarias: seccionesRutinarias,
-        valores_rutinarias: {},
+        valores_rutinarias: valores,
         historico_reportes: reportesActualizados,
       });
       marcarDatosLocales();
       setHistoricoReportes(reportesActualizados);
-      setValores(actuales => {
-        const restantes = { ...actuales };
-        Object.entries(valoresReportados).forEach(([key, value]) => {
-          if (restantes[key] === value) delete restantes[key];
-        });
-        return restantes;
-      });
-      alert("¡Reporte de Tareas Rutinarias guardado con éxito! Los valores se han reiniciado para la nueva semana.");
+      alert("¡Reporte de Tareas Rutinarias guardado con éxito! Los valores se conservaron y el reporte quedó disponible en el historial.");
     } catch (error) {
       console.error('Error al guardar el reporte rutinario:', error);
       alert('No se pudo guardar el reporte. Los datos se conservaron; intente de nuevo.');
@@ -854,6 +946,30 @@ export default function Tareas() {
   };
 
   const semanaActual = obtenerRangoSemana();
+  const semanasDisponibles = useMemo(() => {
+    const semanas = new Set([semanaActual, ...Object.keys(valoresPorSemana)]);
+    historicoReportes
+      .filter(reporte => reporte.tipoReporte === 'rutinarias' && reporte.semanaTexto)
+      .forEach(reporte => semanas.add(reporte.semanaTexto));
+
+    return [...semanas].sort((a, b) => obtenerInicioSemanaTimestamp(b) - obtenerInicioSemanaTimestamp(a));
+  }, [semanaActual, historicoReportes, valoresPorSemana]);
+  const semanaVisible = semanasDisponibles.includes(semanaSeleccionada)
+    ? semanaSeleccionada
+    : semanaActual;
+  const esSemanaActualSeleccionada = semanaVisible === semanaActual;
+  const reporteSemanaVisible = esSemanaActualSeleccionada
+    ? null
+    : historicoReportes.find(reporte => (
+      reporte.tipoReporte === 'rutinarias' && reporte.semanaTexto === semanaVisible
+    ));
+  const valoresVisibles = esSemanaActualSeleccionada
+    ? valores
+    : reporteSemanaVisible?.datos || valoresPorSemana[semanaVisible] || {};
+  const seccionesVisibles = esSemanaActualSeleccionada
+    ? seccionesRutinarias
+    : reporteSemanaVisible?.seccionesSnapshot || seccionesRutinarias;
+  const indiceSemanaVisible = semanasDisponibles.indexOf(semanaVisible);
 
   // Función auxiliar para renderizar los datos correctos en la vista de impresión
   const renderDataImpresion = (seccion, item, dia, sub, reporteDatos) => {
@@ -983,7 +1099,7 @@ export default function Tareas() {
                       Reintentar sincronización
                     </button>
                   )}
-                  {puedeCrear && (
+                  {puedeCrear && esSemanaActualSeleccionada && (
                     <button
                       type="button"
                       onClick={abrirModalNuevaTareaRutinaria}
@@ -996,7 +1112,57 @@ export default function Tareas() {
                 </div>
               </div>
 
-              {seccionesRutinarias.map((seccion) => {
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSemanaSeleccionada(semanasDisponibles[indiceSemanaVisible + 1])}
+                    disabled={indiceSemanaVisible < 0 || indiceSemanaVisible >= semanasDisponibles.length - 1}
+                    className="rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    ← Semana anterior
+                  </button>
+                  <select
+                    aria-label="Semana mostrada en tareas rutinarias"
+                    value={semanaVisible}
+                    onChange={(e) => setSemanaSeleccionada(e.target.value)}
+                    className="min-w-56 rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700"
+                  >
+                    {semanasDisponibles.map(semana => (
+                      <option key={semana} value={semana}>{semana}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => setSemanaSeleccionada(semanasDisponibles[indiceSemanaVisible - 1])}
+                    disabled={indiceSemanaVisible <= 0}
+                    className="rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Semana siguiente →
+                  </button>
+                  {!esSemanaActualSeleccionada && (
+                    <button
+                      type="button"
+                      onClick={() => setSemanaSeleccionada(semanaActual)}
+                      className="rounded-md px-2 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50"
+                    >
+                      Volver a semana actual
+                    </button>
+                  )}
+                </div>
+                <span className={`text-xs font-bold ${esSemanaActualSeleccionada ? 'text-emerald-700' : 'text-amber-700'}`}>
+                  {esSemanaActualSeleccionada ? 'Semana actual · editable' : 'Histórico · solo lectura'}
+                </span>
+              </div>
+
+              {!esSemanaActualSeleccionada && !reporteSemanaVisible && (
+                <p role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                  No se encontró un reporte rutinario guardado para esta semana.
+                </p>
+              )}
+
+              <fieldset disabled={!esSemanaActualSeleccionada} className="min-w-0 space-y-10 border-0 p-0">
+              {seccionesVisibles.map((seccion) => {
                 const esSoloObservacion = seccion.tipoContenido === 'solo_observacion';
                 return (
                   <div key={seccion.id} className="overflow-x-auto border border-slate-200 rounded-lg shadow-inner bg-white">
@@ -1073,25 +1239,25 @@ export default function Tareas() {
                                   return (
                                     <td key={dia.clave} className="p-2 border-r last:border-r-0 border-slate-200 align-middle">
                                       {esSoloObservacion ? (
-                                        <input type="text" placeholder="Obs..." className="w-full px-1.5 py-0.5 border border-slate-200 rounded text-[10px] focus:outline-none focus:border-blue-400 bg-white" value={valores[`${cellKey}_obs`] || ''} onChange={(e) => handleInputChange(item.id, dia.clave, 'obs', e.target.value)} />
+                                        <input type="text" placeholder="Obs..." className="w-full px-1.5 py-0.5 border border-slate-200 rounded text-[10px] focus:outline-none focus:border-blue-400 bg-white" value={valoresVisibles[`${cellKey}_obs`] || ''} onChange={(e) => handleInputChange(item.id, dia.clave, 'obs', e.target.value)} />
                                       ) : seccion.tipoContenido === 'status_check' ? (
                                         <div className="flex flex-col space-y-1 py-1 text-left font-medium text-[11px]">
                                           <label className="flex items-center space-x-2 text-emerald-800 cursor-pointer">
-                                            <input type="radio" name={cellKey} className="w-3.5 h-3.5 text-emerald-600 focus:ring-emerald-500" checked={valores[`${cellKey}_status`] === 'linea'} onChange={() => toggleStatus(item.id, dia.clave, 'status', 'linea')} />
+                                            <input type="radio" name={cellKey} className="w-3.5 h-3.5 text-emerald-600 focus:ring-emerald-500" checked={valoresVisibles[`${cellKey}_status`] === 'linea'} onChange={() => toggleStatus(item.id, dia.clave, 'status', 'linea')} />
                                             <span>Línea</span>
                                           </label>
                                           <label className="flex items-center space-x-2 text-rose-800 cursor-pointer">
-                                            <input type="radio" name={cellKey} className="w-3.5 h-3.5 text-rose-600 focus:ring-rose-500" checked={valores[`${cellKey}_status`] === 'offline'} onChange={() => toggleStatus(item.id, dia.clave, 'status', 'offline')} />
+                                            <input type="radio" name={cellKey} className="w-3.5 h-3.5 text-rose-600 focus:ring-rose-500" checked={valoresVisibles[`${cellKey}_status`] === 'offline'} onChange={() => toggleStatus(item.id, dia.clave, 'status', 'offline')} />
                                             <span>Offline</span>
                                           </label>
-                                          <input type="text" placeholder="Obs..." className="w-full mt-1 px-1.5 py-0.5 border border-slate-200 rounded text-[10px] focus:outline-none focus:border-blue-400 bg-white" value={valores[`${cellKey}_obs`] || ''} onChange={(e) => handleInputChange(item.id, dia.clave, 'obs', e.target.value)} />
+                                          <input type="text" placeholder="Obs..." className="w-full mt-1 px-1.5 py-0.5 border border-slate-200 rounded text-[10px] focus:outline-none focus:border-blue-400 bg-white" value={valoresVisibles[`${cellKey}_obs`] || ''} onChange={(e) => handleInputChange(item.id, dia.clave, 'obs', e.target.value)} />
                                         </div>
                                       ) : seccion.tipoContenido === 'disk_space' ? (
                                         <div className="space-y-1 text-[11px]">
                                           {item.discos.map(disco => (
                                             <div key={disco} className="flex items-center space-x-1">
                                               <span className="font-bold text-slate-400 w-9 text-right select-none uppercase">{disco}:</span>
-                                              <input type="text" placeholder="GB/TB" className="w-full px-1.5 py-0.5 border border-slate-200 rounded text-center focus:outline-none focus:border-blue-400 bg-white" value={valores[`${cellKey}_disk_${disco}`] || ''} onChange={(e) => handleInputChange(item.id, dia.clave, `disk_${disco}`, e.target.value)} />
+                                              <input type="text" placeholder="GB/TB" className="w-full px-1.5 py-0.5 border border-slate-200 rounded text-center focus:outline-none focus:border-blue-400 bg-white" value={valoresVisibles[`${cellKey}_disk_${disco}`] || ''} onChange={(e) => handleInputChange(item.id, dia.clave, `disk_${disco}`, e.target.value)} />
                                             </div>
                                           ))}
                                         </div>
@@ -1107,15 +1273,15 @@ export default function Tareas() {
                                                   <div className="grid grid-cols-3 gap-1">
                                                     <div className="flex flex-col items-center">
                                                       <span className="text-[7px] font-bold text-blue-600 mb-0.5">Baj. (↓)</span>
-                                                      <input type="text" placeholder="Mbps" className="w-full text-[9px] px-1 py-0.5 border border-slate-300 rounded text-center focus:outline-none focus:border-blue-500 bg-white" value={valores[`${cellKey}_${plat}_bajada`] || ''} onChange={(e) => handleInputChange(item.id, dia.clave, `${plat}_bajada`, e.target.value)} />
+                                                      <input type="text" placeholder="Mbps" className="w-full text-[9px] px-1 py-0.5 border border-slate-300 rounded text-center focus:outline-none focus:border-blue-500 bg-white" value={valoresVisibles[`${cellKey}_${plat}_bajada`] || ''} onChange={(e) => handleInputChange(item.id, dia.clave, `${plat}_bajada`, e.target.value)} />
                                                     </div>
                                                     <div className="flex flex-col items-center">
                                                       <span className="text-[7px] font-bold text-emerald-600 mb-0.5">Sub. (↑)</span>
-                                                      <input type="text" placeholder="Mbps" className="w-full text-[9px] px-1 py-0.5 border border-slate-300 rounded text-center focus:outline-none focus:border-blue-500 bg-white" value={valores[`${cellKey}_${plat}_subida`] || ''} onChange={(e) => handleInputChange(item.id, dia.clave, `${plat}_subida`, e.target.value)} />
+                                                      <input type="text" placeholder="Mbps" className="w-full text-[9px] px-1 py-0.5 border border-slate-300 rounded text-center focus:outline-none focus:border-blue-500 bg-white" value={valoresVisibles[`${cellKey}_${plat}_subida`] || ''} onChange={(e) => handleInputChange(item.id, dia.clave, `${plat}_subida`, e.target.value)} />
                                                     </div>
                                                     <div className="flex flex-col items-center">
                                                       <span className="text-[7px] font-bold text-amber-600 mb-0.5">Lat. (ms)</span>
-                                                      <input type="text" placeholder="Ping" className="w-full text-[9px] px-1 py-0.5 border border-slate-300 rounded text-center focus:outline-none focus:border-blue-500 bg-white" value={valores[`${cellKey}_${plat}_ping`] || ''} onChange={(e) => handleInputChange(item.id, dia.clave, `${plat}_ping`, e.target.value)} />
+                                                      <input type="text" placeholder="Ping" className="w-full text-[9px] px-1 py-0.5 border border-slate-300 rounded text-center focus:outline-none focus:border-blue-500 bg-white" value={valoresVisibles[`${cellKey}_${plat}_ping`] || ''} onChange={(e) => handleInputChange(item.id, dia.clave, `${plat}_ping`, e.target.value)} />
                                                     </div>
                                                   </div>
                                                 </div>
@@ -1156,26 +1322,26 @@ export default function Tareas() {
                                           {sub.tipo === 'status_check' ? (
                                             <div className="flex flex-col space-y-1 py-1 text-left font-medium text-[11px]">
                                               <label className="flex items-center space-x-2 text-emerald-800 cursor-pointer">
-                                                <input type="radio" name={cellKey} className="w-3.5 h-3.5 text-emerald-600" checked={valores[`${cellKey}_status`] === 'linea'} onChange={() => toggleStatus(item.id, dia.clave, 'status', 'linea')} />
+                                                <input type="radio" name={cellKey} className="w-3.5 h-3.5 text-emerald-600" checked={valoresVisibles[`${cellKey}_status`] === 'linea'} onChange={() => toggleStatus(item.id, dia.clave, 'status', 'linea')} />
                                                 <span>Línea</span>
                                               </label>
                                               <label className="flex items-center space-x-2 text-rose-800 cursor-pointer">
-                                                <input type="radio" name={cellKey} className="w-3.5 h-3.5 text-rose-600" checked={valores[`${cellKey}_status`] === 'offline'} onChange={() => toggleStatus(item.id, dia.clave, 'status', 'offline')} />
+                                                <input type="radio" name={cellKey} className="w-3.5 h-3.5 text-rose-600" checked={valoresVisibles[`${cellKey}_status`] === 'offline'} onChange={() => toggleStatus(item.id, dia.clave, 'status', 'offline')} />
                                                 <span>Offline</span>
                                               </label>
-                                              <input type="text" placeholder="Obs..." className="w-full mt-1 px-1.5 py-0.5 border border-slate-200 rounded text-[10px] focus:outline-none bg-white" value={valores[`${cellKey}_obs`] || ''} onChange={(e) => handleInputChange(item.id, dia.clave, 'obs', e.target.value)} />
+                                              <input type="text" placeholder="Obs..." className="w-full mt-1 px-1.5 py-0.5 border border-slate-200 rounded text-[10px] focus:outline-none bg-white" value={valoresVisibles[`${cellKey}_obs`] || ''} onChange={(e) => handleInputChange(item.id, dia.clave, 'obs', e.target.value)} />
                                             </div>
                                           ) : sub.tipo === 'avpro_check' ? (
                                             <div className="flex flex-col space-y-1 py-1 text-left font-medium text-[11px]">
                                               <label className="flex items-center space-x-2 text-emerald-800 cursor-pointer">
-                                                <input type="radio" name={cellKey} className="w-3.5 h-3.5 text-emerald-600" checked={valores[`${cellKey}_status`] === 'correcto'} onChange={() => toggleStatus(item.id, dia.clave, 'status', 'correcto')} />
+                                                <input type="radio" name={cellKey} className="w-3.5 h-3.5 text-emerald-600" checked={valoresVisibles[`${cellKey}_status`] === 'correcto'} onChange={() => toggleStatus(item.id, dia.clave, 'status', 'correcto')} />
                                                 <span className="text-[10px]">Resp. Correcto</span>
                                               </label>
                                               <label className="flex items-center space-x-2 text-rose-800 cursor-pointer">
-                                                <input type="radio" name={cellKey} className="w-3.5 h-3.5 text-rose-600" checked={valores[`${cellKey}_status`] === 'fallido'} onChange={() => toggleStatus(item.id, dia.clave, 'status', 'fallido')} />
+                                                <input type="radio" name={cellKey} className="w-3.5 h-3.5 text-rose-600" checked={valoresVisibles[`${cellKey}_status`] === 'fallido'} onChange={() => toggleStatus(item.id, dia.clave, 'status', 'fallido')} />
                                                 <span className="text-[10px]">Resp. Fallido</span>
                                               </label>
-                                              <input type="text" placeholder="Obs..." className="w-full mt-1 px-1.5 py-0.5 border border-slate-200 rounded text-[10px] focus:outline-none bg-white" value={valores[`${cellKey}_obs`] || ''} onChange={(e) => handleInputChange(item.id, dia.clave, 'obs', e.target.value)} />
+                                              <input type="text" placeholder="Obs..." className="w-full mt-1 px-1.5 py-0.5 border border-slate-200 rounded text-[10px] focus:outline-none bg-white" value={valoresVisibles[`${cellKey}_obs`] || ''} onChange={(e) => handleInputChange(item.id, dia.clave, 'obs', e.target.value)} />
                                             </div>
                                           ) : null}
                                         </td>
@@ -1189,7 +1355,7 @@ export default function Tareas() {
                             <tr className="bg-slate-50/60 font-medium">
                               <td className="p-3 font-bold text-slate-500 bg-slate-100/30 border-r border-slate-200 text-center tracking-wide text-[10px]">RESPONSABLE</td>
                               {DIAS_SEMANA.map((dia) => {
-                                const valorActual = valores[`responsable_${seccion.id}_${dia.clave}_nombre`] || '';
+                                const valorActual = valoresVisibles[`responsable_${seccion.id}_${dia.clave}_nombre`] || '';
                                 return (
                                   <td key={dia.clave} className="p-2 border-r last:border-r-0 border-slate-200">
                                     <select className="w-full px-1.5 py-1 border border-slate-200 rounded text-[10px] font-semibold text-center uppercase focus:outline-none focus:border-blue-500 bg-white shadow-sm" value={valorActual} onChange={(e) => handleResponsableChange(seccion.id, dia.clave, e.target.value)}>
@@ -1209,9 +1375,10 @@ export default function Tareas() {
                   </div>
                 );
               })}
+              </fieldset>
             </div>
             <div className="flex justify-end pt-3">
-              <button type="submit" disabled={loading || !rutinasHidratadas} className={`text-white text-sm font-semibold px-6 py-2.5 rounded-lg shadow-md transition-all flex items-center space-x-2 ${loading || !rutinasHidratadas ? 'bg-blue-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 active:scale-[0.98]'}`}>
+              <button type="submit" disabled={loading || !rutinasHidratadas || !esSemanaActualSeleccionada} className={`text-white text-sm font-semibold px-6 py-2.5 rounded-lg shadow-md transition-all flex items-center space-x-2 ${loading || !rutinasHidratadas || !esSemanaActualSeleccionada ? 'bg-blue-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 active:scale-[0.98]'}`}>
                 {loading ? <span>Guardando...</span> : <span>Guardar Reporte Rutinario</span>}
               </button>
             </div>
