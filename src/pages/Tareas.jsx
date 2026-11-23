@@ -70,7 +70,7 @@ const SECCIONES_BITACORA_INICIAL = [
   },
   {
     id: 'respaldo_correos_avpro',
-    titulo: '5. Respaldo de Correos Corporativo (04:30 P.M.) y Respaldo de Sistema Avpro',
+    titulo: '5. Respaldo de Correos Corporativos',
     tipoContenido: 'mixed_backups',
     subtablas: [
       {
