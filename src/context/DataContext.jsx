@@ -3,6 +3,13 @@ import api from '../services/api';
 
 const DataContext = createContext();
 
+const ordenarPlataformasTest = (plataformas) => (
+  [...(Array.isArray(plataformas) ? plataformas : [])].sort((a, b) => (
+    (Number(a.orden) || 0) - (Number(b.orden) || 0) ||
+    (Number(a.id) || 0) - (Number(b.id) || 0)
+  ))
+);
+
 export const DataProvider = ({ children }) => {
   // ============================================================
   // ESTADOS GLOBALES
@@ -183,7 +190,7 @@ export const DataProvider = ({ children }) => {
       setMarcas(marcasRes.data);
       setDepartamentos(departamentosRes.data);
       setPersonal(personalRes.data);
-      setPlataformasTest(plataformasTestRes.data);
+      setPlataformasTest(ordenarPlataformasTest(plataformasTestRes.data));
       setDestinos(destinosRes.data);
       setLicencias(licenciasRes.data);
       setDominios(dominiosRes.data);
@@ -1414,7 +1421,7 @@ const obtenerMantenimientoActivo = async (activoId) => {
   const agregarPlataformaTest = async (plataforma) => {
     try {
       const response = await api.post('/plataformas-test', plataforma);
-      setPlataformasTest(prev => [...prev, response.data]);
+      setPlataformasTest(prev => ordenarPlataformasTest([...prev, response.data]));
       return response.data;
     } catch (error) {
       console.error('Error agregando plataforma:', error);
@@ -1426,7 +1433,7 @@ const obtenerMantenimientoActivo = async (activoId) => {
   const actualizarPlataformaTest = async (id, plataforma) => {
     try {
       const response = await api.put(`/plataformas-test/${id}`, plataforma);
-      setPlataformasTest(prev => prev.map(p => p.id === id ? response.data : p));
+      setPlataformasTest(prev => ordenarPlataformasTest(prev.map(p => p.id === id ? response.data : p)));
       return response.data;
     } catch (error) {
       console.error('Error actualizando plataforma:', error);
