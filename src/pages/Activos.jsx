@@ -331,10 +331,14 @@ const Activos = () => {
   };
 
   const handleGuardarActivo = async (nuevoActivo) => {
+    let activoGuardado;
     if (activoAEditar) {
-      await actualizarActivo(activoAEditar.id, nuevoActivo);
+      activoGuardado = await actualizarActivo(activoAEditar.id, nuevoActivo);
     } else {
-      await agregarActivo(nuevoActivo);
+      activoGuardado = await agregarActivo(nuevoActivo);
+    }
+    if (activoAEditar && String(activoADetalle?.id) === String(activoGuardado.id)) {
+      setActivoADetalle(activoGuardado);
     }
     setIsModalOpen(false);
     setActivoAEditar(null);
@@ -643,7 +647,7 @@ const Activos = () => {
                     {activoADetalle.red && (
                       <div className="space-y-2 pb-3 border-b border-slate-700/50">
                         <div className="flex justify-between items-start gap-4"><span className="text-slate-400 shrink-0">Hostname:</span> <span className="font-bold text-white text-right">{activoADetalle.red.nombre_red || activoADetalle.red.hostname || 'N/A'}</span></div>
-                        <div className="flex justify-between items-start gap-4"><span className="text-slate-400 shrink-0">Dominio:</span> <span className="font-medium text-slate-200 text-right">{activoADetalle.red.dominio || 'N/A'}</span></div>
+                        <div className="flex justify-between items-start gap-4"><span className="text-slate-400 shrink-0">Dominio:</span> <span className="font-medium text-slate-200 text-right">{activoADetalle.red.dominio?.nombre || activoADetalle.red.dominio || 'N/A'}</span></div>
                       </div>
                     )}
 

@@ -399,7 +399,7 @@ const ModalAsignacion = ({ isOpen, onClose, asignacionAEditar = null }) => {
           <button onClick={onClose} className="p-1.5 rounded-full hover:bg-slate-200 transition-colors"><X size={20} /></button>
         </div>
 
-        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto px-6 py-5 space-y-5 bg-slate-50/30">
+        <form id="form-asignacion" onSubmit={handleSubmit} className="flex-1 overflow-y-auto px-6 py-5 space-y-5 bg-slate-50/30">
           {/* Sección 1: Activos */}
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-4">
             <div className="flex items-center gap-2 text-blue-700 border-b border-blue-100 pb-2">
@@ -606,7 +606,7 @@ const ModalAsignacion = ({ isOpen, onClose, asignacionAEditar = null }) => {
 
         <div className="px-6 py-4 bg-white border-t border-slate-200 flex justify-end gap-3 shrink-0">
           <button type="button" onClick={onClose} className="px-5 py-2 text-sm font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl">Cancelar</button>
-          <button type="submit" disabled={isSubmitting} className="px-6 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-md flex items-center gap-2">
+          <button type="submit" form="form-asignacion" disabled={isSubmitting} className="px-6 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-md flex items-center gap-2">
             {isSubmitting ? <><Loader2 size={16} className="animate-spin" /> Procesando</> : <><UserCheck size={16} /> {asignacionAEditar ? 'Actualizar' : 'Crear Asignación'}</>}
           </button>
         </div>

@@ -609,7 +609,7 @@ const ModalActivo = ({ isOpen, onClose, onAgregarActivo, activoAEditar }) => {
           <button onClick={onClose} className="p-1.5 rounded-full hover:bg-slate-200 transition-colors"><X size={20} /></button>
         </div>
 
-        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto px-6 py-5 space-y-6 bg-slate-50/30">
+        <form id="form-activo" onSubmit={handleSubmit} className="flex-1 overflow-y-auto px-6 py-5 space-y-6 bg-slate-50/30">
           {/* ===== SECCIÓN 1: IDENTIFICACIÓN Y CONTROL ===== */}
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-4">
             <div className="flex items-center gap-2 text-blue-700 border-b border-blue-100 pb-2">
@@ -923,7 +923,7 @@ const ModalActivo = ({ isOpen, onClose, onAgregarActivo, activoAEditar }) => {
 
         <div className="px-6 py-4 bg-white border-t border-slate-200 flex justify-end gap-3 shrink-0">
           <button type="button" onClick={onClose} disabled={isSubmitting} className="px-5 py-2 text-sm font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition">Cancelar</button>
-          <button type="submit" disabled={isSubmitting} className="px-6 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-md transition flex items-center gap-2 disabled:opacity-50">
+          <button type="submit" form="form-activo" disabled={isSubmitting} className="px-6 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-md transition flex items-center gap-2 disabled:opacity-50">
             {isSubmitting ? 'Guardando...' : <><Save size={16} /> {activoAEditar ? 'Actualizar' : 'Registrar'}</>}
           </button>
         </div>

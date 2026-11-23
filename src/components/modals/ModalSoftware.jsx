@@ -301,7 +301,7 @@ const ModalSoftware = ({ isOpen, onClose, onGuardar, softwareAEditar = null }) =
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto px-6 py-5 space-y-4 bg-slate-50/30">
+        <form id="form-software" onSubmit={handleSubmit} className="flex-1 overflow-y-auto px-6 py-5 space-y-4 bg-slate-50/30">
           {/* Etiqueta */}
           <div className="space-y-1.5">
             <label className="text-xs font-bold text-slate-600 block">Etiqueta (Código único) *</label>
@@ -503,6 +503,7 @@ const ModalSoftware = ({ isOpen, onClose, onGuardar, softwareAEditar = null }) =
           </button>
           <button
             type="submit"
+            form="form-software"
             disabled={isSubmitting}
             className="px-6 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-md transition flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
