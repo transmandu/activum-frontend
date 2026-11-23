@@ -7,6 +7,8 @@ const ModalTarea = ({ isOpen, onClose, tareaAEditar = null, onGuardar, soloRutin
   const [formData, setFormData] = useState({
     descripcion: '',
     proyecto: '',
+    tipoContenido: 'solo_observacion',
+    discosPredeterminados: 'C, D, E',
   });
   const [errores, setErrores] = useState({});
 
@@ -16,11 +18,17 @@ const ModalTarea = ({ isOpen, onClose, tareaAEditar = null, onGuardar, soloRutin
       setFormData({
         descripcion: tareaAEditar.descripcion || '',
         proyecto: tareaAEditar.proyecto || '',
+        tipoContenido: tareaAEditar.tipoContenido || 'solo_observacion',
+        discosPredeterminados: (tareaAEditar.discosPredeterminados || [
+          ...new Set((tareaAEditar.items || []).flatMap(item => item.discos || []))
+        ]).join(', ') || 'C, D, E',
       });
     } else {
       setFormData({
         descripcion: '',
         proyecto: '',
+        tipoContenido: 'solo_observacion',
+        discosPredeterminados: 'C, D, E',
       });
     }
     setErrores({});
@@ -33,7 +41,7 @@ const ModalTarea = ({ isOpen, onClose, tareaAEditar = null, onGuardar, soloRutin
     if (!formData.descripcion.trim()) {
       nuevosErrores.descripcion = 'La descripción de la tarea es obligatoria.';
     }
-    if (!formData.proyecto.trim()) {
+    if (!formData.proyecto.trim() && !tareaAEditar?.seccionId) {
       nuevosErrores.proyecto = 'Debe especificar el proyecto o área.';
     }
     setErrores(nuevosErrores);
@@ -50,6 +58,8 @@ const ModalTarea = ({ isOpen, onClose, tareaAEditar = null, onGuardar, soloRutin
       codigo: `TAR-${Date.now()}`,
       descripcion: formData.descripcion,
       proyecto: formData.proyecto,
+      tipoContenido: formData.tipoContenido,
+      discosPredeterminados: formData.discosPredeterminados,
       clasificacion: 'rutinaria',
       prioridad: 'media',
       dia_asignado: 'lunes',
@@ -94,7 +104,7 @@ const ModalTarea = ({ isOpen, onClose, tareaAEditar = null, onGuardar, soloRutin
             </div>
             <div>
               <h2 className="text-lg font-extrabold text-slate-800 tracking-tight">
-                {tareaAEditar ? 'Modificar Actividad' : 'Nueva Tarea Rutinaria'}
+                {tareaAEditar?.seccionId ? 'Editar Sección Rutinaria' : tareaAEditar ? 'Modificar Actividad' : 'Nueva Sección Rutinaria'}
               </h2>
               <p className="text-xs font-medium text-slate-500 mt-0.5">
                 {soloRutinaria ? 'Registro de tarea rutinaria' : 'Programación y asignación de tareas operativas'}
@@ -141,6 +151,41 @@ const ModalTarea = ({ isOpen, onClose, tareaAEditar = null, onGuardar, soloRutin
             />
             {errores.proyecto && <p className="text-xs text-rose-500 font-bold mt-1">{errores.proyecto}</p>}
           </div>
+
+          <div className="space-y-2">
+            <label className="text-xs font-bold text-slate-500 uppercase tracking-widest">Tipo de sección</label>
+            <select
+              name="tipoContenido"
+              value={formData.tipoContenido}
+              onChange={handleChange}
+              className="w-full px-4 py-3 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 focus:bg-white transition-all"
+            >
+              <option value="solo_observacion">Observaciones</option>
+              <option value="status_check">Estado (línea / fuera de línea)</option>
+              <option value="disk_space">Espacio en disco</option>
+              <option value="speed_test">Prueba de velocidad</option>
+              {tareaAEditar?.tipoContenido === 'mixed_backups' && (
+                <option value="mixed_backups">Respaldos mixtos</option>
+              )}
+            </select>
+          </div>
+
+          {formData.tipoContenido === 'disk_space' && (
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-slate-500 uppercase tracking-widest">
+                Unidades predeterminadas para dispositivos nuevos
+              </label>
+              <input
+                type="text"
+                name="discosPredeterminados"
+                value={formData.discosPredeterminados}
+                onChange={handleChange}
+                placeholder="C, D, E"
+                className="w-full px-4 py-3 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 focus:bg-white transition-all"
+              />
+              <p className="text-xs text-slate-500">Separe las unidades con comas.</p>
+            </div>
+          )}
 
           {/* Nota informativa simplificada (siempre visible) */}
           <div className="p-4 bg-blue-50/50 rounded-2xl border border-blue-100 flex items-start gap-3">

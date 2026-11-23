@@ -173,6 +173,21 @@ const fusionarDatosRutinarios = (remotos, locales) => ({
   inicializado: true,
 });
 
+const normalizarListaDiscos = (valor) => (
+  String(valor || '')
+    .split(',')
+    .map(disco => disco.trim().toUpperCase())
+    .filter(Boolean)
+);
+
+const NOMBRES_TIPOS_SECCION = {
+  solo_observacion: 'Observaciones',
+  status_check: 'Estado',
+  disk_space: 'Espacio en disco',
+  speed_test: 'Prueba de velocidad',
+  mixed_backups: 'Respaldos mixtos',
+};
+
 export default function Tareas() {
   const { 
     configuracion, 
@@ -236,12 +251,6 @@ export default function Tareas() {
     nombre: '',
     modo: 'agregar',
     itemId: null
-  });
-
-  const [modalEditarTitulo, setModalEditarTitulo] = useState({
-    isOpen: false,
-    seccionId: null,
-    tituloActual: ''
   });
 
   const plataforma1 = configuracion?.test_plataforma_1 || 'speedtest';
@@ -522,7 +531,13 @@ export default function Tareas() {
         });
         return { ...seccion, subtablas: nuevasSubtablas };
       } else {
-        return { ...seccion, items: [...seccion.items, { id: nuevoId, nombre: nombreItem.trim() }] };
+        const nuevoItem = { id: nuevoId, nombre: nombreItem.trim() };
+        if (seccion.tipoContenido === 'disk_space') {
+          nuevoItem.discos = Array.isArray(seccion.discosPredeterminados) && seccion.discosPredeterminados.length
+            ? seccion.discosPredeterminados
+            : ['C', 'D', 'E'];
+        }
+        return { ...seccion, items: [...(seccion.items || []), nuevoItem] };
       }
     }));
   };
@@ -581,18 +596,14 @@ export default function Tareas() {
     else if (modo === 'editar' && itemId) editarItem(seccionId, itemId, nombre);
   };
 
-  const abrirModalEditarTitulo = (seccionId, tituloActual) => {
-    setModalEditarTitulo({ isOpen: true, seccionId, tituloActual });
-  };
-
-  const confirmarEditarTitulo = (nuevoTitulo) => {
-    const { seccionId } = modalEditarTitulo;
-    if (!nuevoTitulo || !nuevoTitulo.trim()) { alert('El título no puede estar vacío.'); return; }
-    marcarDatosLocales();
-    setSeccionesRutinarias(prev => prev.map(seccion => {
-      if (seccion.id !== seccionId) return seccion;
-      return { ...seccion, titulo: nuevoTitulo.trim() };
-    }));
+  const abrirModalEditarSeccion = (seccion) => {
+    setTareaAEditar({
+      ...seccion,
+      seccionId: seccion.id,
+      descripcion: seccion.titulo,
+    });
+    setModalTareaSoloRutinaria(true);
+    setModalTareaOpen(true);
   };
 
   const eliminarSeccion = (seccionId) => {
@@ -624,14 +635,57 @@ export default function Tareas() {
       throw new Error('Las tareas rutinarias aún no se han cargado desde el servidor.');
     }
 
-    const nuevaSeccion = {
-      id: `seccion-${Date.now()}`,
-      titulo: payload.descripcion || 'Nueva Tarea',
-      proyecto: payload.proyecto,
-      tipoContenido: 'solo_observacion',
-      items: [],
-    };
-    const seccionesActualizadas = [...seccionesRutinarias, nuevaSeccion];
+    const tipoContenido = payload.tipoContenido || 'solo_observacion';
+    const discosPredeterminados = normalizarListaDiscos(payload.discosPredeterminados);
+    let seccionesActualizadas;
+
+    if (tareaAEditar?.seccionId) {
+      seccionesActualizadas = seccionesRutinarias.map(seccion => {
+        if (seccion.id !== tareaAEditar.seccionId) return seccion;
+
+        const itemsActuales = seccion.tipoContenido === 'mixed_backups'
+          ? (seccion.subtablas || []).flatMap(subtabla => subtabla.items || [])
+          : (seccion.items || []);
+        const seccionActualizada = {
+          ...seccion,
+          titulo: payload.descripcion.trim(),
+          proyecto: payload.proyecto.trim() || seccion.proyecto || '',
+          tipoContenido,
+        };
+
+        if (tipoContenido === 'mixed_backups') return seccionActualizada;
+
+        delete seccionActualizada.subtablas;
+        seccionActualizada.items = itemsActuales.map(item => (
+          tipoContenido === 'disk_space' && (!Array.isArray(item.discos) || item.discos.length === 0)
+            ? { ...item, discos: discosPredeterminados.length ? discosPredeterminados : ['C', 'D', 'E'] }
+            : item
+        ));
+
+        if (tipoContenido === 'disk_space') {
+          seccionActualizada.discosPredeterminados = discosPredeterminados.length
+            ? discosPredeterminados
+            : ['C', 'D', 'E'];
+        }
+
+        return seccionActualizada;
+      });
+    } else {
+      const nuevaSeccion = {
+        id: `seccion-${Date.now()}`,
+        titulo: payload.descripcion.trim(),
+        proyecto: payload.proyecto.trim(),
+        tipoContenido,
+        items: [],
+      };
+      if (tipoContenido === 'disk_space') {
+        nuevaSeccion.discosPredeterminados = discosPredeterminados.length
+          ? discosPredeterminados
+          : ['C', 'D', 'E'];
+      }
+      seccionesActualizadas = [...seccionesRutinarias, nuevaSeccion];
+    }
+
     await sincronizarSnapshotRutinas({
       secciones_rutinarias: seccionesActualizadas,
       valores_rutinarias: valores,
@@ -944,7 +998,7 @@ export default function Tareas() {
                       disabled={!rutinasHidratadas}
                       className="flex items-center gap-2 px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      <Plus size={16} /> Registrar Nueva Tarea
+                      <Plus size={16} /> Agregar Sección
                     </button>
                   )}
                 </div>
@@ -960,9 +1014,19 @@ export default function Tareas() {
                           <th colSpan={DIAS_SEMANA.length + 1} className="p-4 text-sm font-bold text-slate-700 uppercase tracking-wider">
                             <div className="flex items-center justify-between">
                               <div className="flex items-center gap-2">
-                                <span>{seccion.titulo}</span>
+                                <div>
+                                  <span>{seccion.titulo}</span>
+                                  {seccion.proyecto && (
+                                    <span className="block mt-1 text-[10px] font-medium normal-case text-slate-500">
+                                      {seccion.proyecto}
+                                    </span>
+                                  )}
+                                </div>
+                                <span className="rounded-full bg-blue-50 px-2 py-1 text-[9px] font-bold uppercase tracking-wide text-blue-700">
+                                  {NOMBRES_TIPOS_SECCION[seccion.tipoContenido] || 'Personalizada'}
+                                </span>
                                 {puedeCrear && (
-                                  <button type="button" onClick={() => abrirModalEditarTitulo(seccion.id, seccion.titulo)} className="text-slate-400 hover:text-amber-600 transition-colors p-1 rounded hover:bg-amber-50" title="Editar título de la tarea">
+                                  <button type="button" onClick={() => abrirModalEditarSeccion(seccion)} className="text-slate-400 hover:text-amber-600 transition-colors p-1 rounded hover:bg-amber-50" title="Editar sección">
                                     <Edit2 size={14} />
                                   </button>
                                 )}
@@ -1612,7 +1676,6 @@ export default function Tareas() {
 
       {/* Modales */}
       <ModalAgregarItem isOpen={modalAgregar.isOpen} onClose={() => setModalAgregar(prev => ({ ...prev, isOpen: false }))} onConfirm={confirmarAccionItem} titulo={modalAgregar.modo === 'agregar' ? 'Nuevo Sistema/Dispositivo' : 'Editar Sistema/Dispositivo'} valorInicial={modalAgregar.nombre} placeholder="Ej: Servidor NAS-02" />
-      <ModalAgregarItem isOpen={modalEditarTitulo.isOpen} onClose={() => setModalEditarTitulo(prev => ({ ...prev, isOpen: false }))} onConfirm={confirmarEditarTitulo} titulo="Editar Título de la Tarea" valorInicial={modalEditarTitulo.tituloActual} placeholder="Nuevo título de la tarea..." />
       <ModalTarea isOpen={modalTareaOpen} onClose={() => { setModalTareaOpen(false); setTareaAEditar(null); setModalTareaSoloRutinaria(false); }} tareaAEditar={tareaAEditar} onGuardar={handleGuardarTarea} soloRutinaria={modalTareaSoloRutinaria} />
     </div>
   );
