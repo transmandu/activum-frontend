@@ -75,19 +75,11 @@ const SECCIONES_BITACORA_INICIAL = [
     subtablas: [
       {
         id: 'correos_corp',
-        tituloSub: 'RESPALDO DE CORREOS CORPORATIVO',
+        tituloSub: 'RESPALDO DE CORREOS CORPORATIVOS',
         tipo: 'status_check',
         items: [
           { id: 'backup-transmandu', nombre: 'TRANSMANDU' },
           { id: 'backup-hangar74', nombre: 'HANGAR 74' }
-        ]
-      },
-      {
-        id: 'sistema_avpro_sub',
-        tituloSub: 'RESPALDO DE SISTEMA AVPRO',
-        tipo: 'avpro_check',
-        items: [
-          { id: 'backup-avipro-sys', nombre: 'AVPRO' }
         ]
       }
     ]
