@@ -398,7 +398,7 @@ export default function Tareas() {
       } catch (error) {
         if (cancelado) return;
         limpiarMarcaSincronizacion();
-        console.error('No se pudieron cargar las tareas rutinarias del servidor:', error);
+        console.error('No se pudieron cargar o inicializar las tareas rutinarias del servidor:', error);
         setEstadoPersistencia('error');
       }
     };
