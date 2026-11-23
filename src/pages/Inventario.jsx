@@ -816,7 +816,7 @@ const Inventario = () => {
                   onChange={(e) => setCantidadModalObservacion(e.target.value)}
                   rows="3"
                   maxLength="2000"
-                  placeholder="Escriba una observación para este movimiento (opcional)"
+                  placeholder="Escriba un motivo u observación para este movimiento"
                   className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                 />
               </div>
