@@ -230,6 +230,7 @@ export default function Tareas() {
     cargarTareasRutinarias,
     guardarTareasRutinarias,
     personal,
+    plataformasTest,
     userPermissions
   } = useData();
 
@@ -296,6 +297,22 @@ export default function Tareas() {
   const plataforma1 = configuracion?.test_plataforma_1 || 'speedtest';
   const plataforma2 = configuracion?.test_plataforma_2 || 'gfiber';
   const plataforma3 = configuracion?.test_plataforma_3 || 'nperf';
+  const plataformasRutina = useMemo(() => {
+    const posiciones = new Map();
+    (Array.isArray(plataformasTest) ? plataformasTest : []).forEach((plataforma, index) => {
+      const nombre = String(plataforma?.nombre || '').trim().toLowerCase();
+      if (nombre && !posiciones.has(nombre)) posiciones.set(nombre, index);
+    });
+
+    return [plataforma1, plataforma2, plataforma3]
+      .map((nombre, index) => ({
+        nombre,
+        index,
+        posicion: posiciones.get(String(nombre).trim().toLowerCase()) ?? Number.MAX_SAFE_INTEGER
+      }))
+      .sort((a, b) => a.posicion - b.posicion || a.index - b.index)
+      .map(plataforma => plataforma.nombre);
+  }, [plataformasTest, plataforma1, plataforma2, plataforma3]);
   const colaGuardadoRutinasRef = useRef(Promise.resolve());
   const temporizadorGuardadoRutinasRef = useRef(null);
   const guardarTareasRutinariasRef = useRef(guardarTareasRutinarias);
@@ -998,29 +1015,13 @@ export default function Tareas() {
       }).filter(Boolean).join('\n');
     }
     if (tipo === 'speed_test') {
-      const p1b = reporteDatos[`${baseKey}_${plataforma1}_bajada`] || '';
-      const p1s = reporteDatos[`${baseKey}_${plataforma1}_subida`] || '';
-      const p1p = reporteDatos[`${baseKey}_${plataforma1}_ping`] || '';
-      const p2b = reporteDatos[`${baseKey}_${plataforma2}_bajada`] || '';
-      const p2s = reporteDatos[`${baseKey}_${plataforma2}_subida`] || '';
-      const p2p = reporteDatos[`${baseKey}_${plataforma2}_ping`] || '';
-      const p3b = reporteDatos[`${baseKey}_${plataforma3}_bajada`] || '';
-      const p3s = reporteDatos[`${baseKey}_${plataforma3}_subida`] || '';
-      const p3p = reporteDatos[`${baseKey}_${plataforma3}_ping`] || '';
-
-      let out = '';
-      if (p1b || p1s || p1p) {
-        out += `${plataforma1.toUpperCase()}:\n↓${p1b||0} ↑${p1s||0} ${p1p ? 'ms '+p1p : ''}`;
-      }
-      if (p2b || p2s || p2p) {
-        if (out) out += '\n';
-        out += `${plataforma2.toUpperCase()}:\n↓${p2b||0} ↑${p2s||0} ${p2p ? 'ms '+p2p : ''}`;
-      }
-      if (p3b || p3s || p3p) {
-        if (out) out += '\n';
-        out += `${plataforma3.toUpperCase()}:\n↓${p3b||0} ↑${p3s||0} ${p3p ? 'ms '+p3p : ''}`;
-      }
-      return out;
+      return plataformasRutina.map(plataforma => {
+        const bajada = reporteDatos[`${baseKey}_${plataforma}_bajada`] || '';
+        const subida = reporteDatos[`${baseKey}_${plataforma}_subida`] || '';
+        const ping = reporteDatos[`${baseKey}_${plataforma}_ping`] || '';
+        if (!bajada && !subida && !ping) return '';
+        return `${plataforma.toUpperCase()}:\n↓${bajada || 0} ↑${subida || 0} ${ping ? `ms ${ping}` : ''}`;
+      }).filter(Boolean).join('\n');
     }
     return '';
   };
@@ -1267,7 +1268,7 @@ export default function Tareas() {
                                             <div className="text-[10px] font-bold text-slate-400 text-center py-2 bg-slate-50 border border-dashed border-slate-200 rounded cursor-pointer hover:bg-slate-100" onClick={() => toggleNodo(item.id)}>Haz clic para desplegar los 3 tests</div>
                                           ) : (
                                             <div className="space-y-2">
-                                              {[plataforma1, plataforma2, plataforma3].map(plat => (
+                                              {plataformasRutina.map(plat => (
                                                 <div key={plat} className="p-1.5 bg-slate-50 border border-slate-200 rounded shadow-sm">
                                                   <div className="text-[8px] font-extrabold text-slate-500 tracking-wider uppercase border-b border-slate-200 pb-0.5 mb-1 text-left">{plat.toUpperCase()}</div>
                                                   <div className="grid grid-cols-3 gap-1">
