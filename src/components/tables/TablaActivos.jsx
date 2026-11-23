@@ -41,7 +41,7 @@ const TablaActivos = ({
 }) => {
   return (
     <table className="w-full text-left border-collapse min-w-212.5">
-      <thead>
+      <thead className="lg:sticky lg:top-0 lg:z-10">
         <tr className="bg-slate-50/70 border-b border-slate-100 text-[11px] font-bold text-slate-500 uppercase tracking-wider select-none">
           <th className="py-3 px-5 cursor-pointer hover:bg-slate-200/50 transition-colors" onClick={() => onSort('etiqueta')}>
             <div className="flex items-center gap-1">

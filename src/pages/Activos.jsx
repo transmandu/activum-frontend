@@ -475,7 +475,7 @@ const Activos = () => {
       {/* Tabla + Detalle */}
       <div className="flex-1 flex flex-col lg:flex-row gap-6 min-h-0 items-start">
         <div className="flex-1 w-full bg-white rounded-2xl shadow-md border border-slate-200/80 overflow-hidden">
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto lg:max-h-[calc(100vh-18rem)] lg:overflow-auto">
             <TablaActivos 
               datos={activosFiltrados}
               sortConfig={sortConfig}

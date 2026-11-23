@@ -492,8 +492,8 @@ const ModalActivo = ({ isOpen, onClose, onAgregarActivo, activoAEditar }) => {
 
       let dominioId = null;
       if (form.red.dominio_id && form.red.dominio_id !== '') {
-        const dominioExistente = dominios.find(d => d.id === parseInt(form.red.dominio_id));
-        if (dominioExistente) dominioId = dominioExistente.id;
+        const dominioExistente = dominios.find(d => String(d.id) === String(form.red.dominio_id));
+        if (dominioExistente) dominioId = Number(dominioExistente.id);
       }
 
       const discosProcesados = form.hardware.discos
