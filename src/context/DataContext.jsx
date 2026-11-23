@@ -914,6 +914,16 @@ const cargarCronogramas = async () => {
   }
 };
 
+  const cargarTareasRutinarias = async () => {
+    const response = await api.get('/tareas-rutinarias');
+    return response.data;
+  };
+
+  const guardarTareasRutinarias = async (datos) => {
+    const response = await api.put('/tareas-rutinarias', datos);
+    return response.data;
+  };
+
   const eliminarTarea = async (id) => {
   try {
       await api.delete(`/tareas/${id}`);
@@ -2376,6 +2386,8 @@ const registrarSalidaCarrito = async (items, observacion = '') => {
 
     // CRUD Tareas
     agregarTarea,
+    cargarTareasRutinarias,
+    guardarTareasRutinarias,
     eliminarTarea,
 
     // CRUD Proveedores

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useData } from '../context/DataContext';
 import { Calendar, Clock, Plus, Edit2, Trash2, X } from 'lucide-react';
 import ModalTarea from '../components/modals/ModalTarea';
@@ -120,6 +120,58 @@ const ChevronDownIcon = ({ className }) => (
 );
 
 const STORAGE_KEY_VALORES = 'tareas_valores_rutinarias';
+const STORAGE_KEY_SINCRONIZACION = 'tareas_rutinarias_backend_sincronizadas';
+
+const leerJsonLocal = (key, fallback) => {
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw === null) return { value: fallback, stored: false };
+    return { value: JSON.parse(raw), stored: true };
+  } catch (error) {
+    console.error(`No se pudo leer ${key} desde el almacenamiento local:`, error);
+    return { value: fallback, stored: true };
+  }
+};
+
+const fusionarPorId = (remotos = [], locales = []) => {
+  const resultado = new Map(remotos.map(item => [String(item.id), item]));
+
+  locales.forEach(local => {
+    const key = String(local.id);
+    const remoto = resultado.get(key);
+    if (!remoto) {
+      resultado.set(key, local);
+      return;
+    }
+
+    const combinado = { ...remoto, ...local };
+    if (Array.isArray(remoto.items) || Array.isArray(local.items)) {
+      combinado.items = fusionarPorId(remoto.items || [], local.items || []);
+    }
+    if (Array.isArray(remoto.subtablas) || Array.isArray(local.subtablas)) {
+      combinado.subtablas = fusionarPorId(remoto.subtablas || [], local.subtablas || []);
+    }
+    resultado.set(key, combinado);
+  });
+
+  return [...resultado.values()];
+};
+
+const fusionarDatosRutinarios = (remotos, locales) => ({
+  secciones_rutinarias: fusionarPorId(
+    remotos.secciones_rutinarias || [],
+    locales.secciones_rutinarias || []
+  ),
+  valores_rutinarias: {
+    ...(remotos.valores_rutinarias || {}),
+    ...(locales.valores_rutinarias || {}),
+  },
+  historico_reportes: fusionarPorId(
+    remotos.historico_reportes || [],
+    locales.historico_reportes || []
+  ),
+  inicializado: true,
+});
 
 export default function Tareas() {
   const { 
@@ -128,6 +180,8 @@ export default function Tareas() {
     tareas, 
     agregarTarea, 
     eliminarTarea, 
+    cargarTareasRutinarias,
+    guardarTareasRutinarias,
     personal,
     userPermissions
   } = useData();
@@ -135,16 +189,28 @@ export default function Tareas() {
   const puedeCrear = userPermissions.includes('crear_tareas');
   const puedeEliminar = userPermissions.includes('eliminar_tareas');
 
+  const datosLocalesRef = useRef(null);
+  if (datosLocalesRef.current === null) {
+    const valoresLocales = leerJsonLocal(STORAGE_KEY_VALORES, {});
+    const seccionesLocales = leerJsonLocal('tareas_secciones_rutinarias', SECCIONES_BITACORA_INICIAL);
+    const reportesLocales = leerJsonLocal('tareas_historico_reportes', []);
+    datosLocalesRef.current = {
+      valores_rutinarias: valoresLocales.value && typeof valoresLocales.value === 'object' && !Array.isArray(valoresLocales.value)
+        ? valoresLocales.value
+        : {},
+      secciones_rutinarias: Array.isArray(seccionesLocales.value) ? seccionesLocales.value : SECCIONES_BITACORA_INICIAL,
+      historico_reportes: Array.isArray(reportesLocales.value) ? reportesLocales.value : [],
+      hayDatosLocales: valoresLocales.stored || seccionesLocales.stored || reportesLocales.stored,
+    };
+  }
+
   const [tabActiva, setTabActiva] = useState('rutinarias');
-  const [valores, setValores] = useState(() => {
-    const guardado = localStorage.getItem(STORAGE_KEY_VALORES);
-    return guardado ? JSON.parse(guardado) : {};
-  });
+  const [valores, setValores] = useState(datosLocalesRef.current.valores_rutinarias);
   const [loading, setLoading] = useState(false);
-  const [historicoReportes, setHistoricoReportes] = useState(() => {
-    const guardado = localStorage.getItem('tareas_historico_reportes');
-    return guardado ? JSON.parse(guardado) : [];
-  });
+  const [historicoReportes, setHistoricoReportes] = useState(datosLocalesRef.current.historico_reportes);
+  const [estadoPersistencia, setEstadoPersistencia] = useState('cargando');
+  const [rutinasHidratadas, setRutinasHidratadas] = useState(false);
+  const [intentoCargaRutinas, setIntentoCargaRutinas] = useState(0);
   const [reporteParaImprimir, setReporteParaImprimir] = useState(null);
   const [nodosDesplegados, setNodosDesplegados] = useState({});
   const [tareasNoRutinarias, setTareasNoRutinarias] = useState([]);
@@ -158,18 +224,7 @@ export default function Tareas() {
   });
   const [responsableSeleccionado, setResponsableSeleccionado] = useState('');
 
-  const [seccionesRutinarias, setSeccionesRutinarias] = useState(() => {
-    const guardado = localStorage.getItem('tareas_secciones_rutinarias');
-    if (guardado) {
-      try {
-        const parsed = JSON.parse(guardado);
-        return parsed;
-      } catch {
-        return SECCIONES_BITACORA_INICIAL;
-      }
-    }
-    return SECCIONES_BITACORA_INICIAL;
-  });
+  const [seccionesRutinarias, setSeccionesRutinarias] = useState(datosLocalesRef.current.secciones_rutinarias);
 
   const [modalTareaOpen, setModalTareaOpen] = useState(false);
   const [tareaAEditar, setTareaAEditar] = useState(null);
@@ -192,6 +247,63 @@ export default function Tareas() {
   const plataforma1 = configuracion?.test_plataforma_1 || 'speedtest';
   const plataforma2 = configuracion?.test_plataforma_2 || 'gfiber';
   const plataforma3 = configuracion?.test_plataforma_3 || 'nperf';
+  const colaGuardadoRutinasRef = useRef(Promise.resolve());
+  const temporizadorGuardadoRutinasRef = useRef(null);
+  const guardarTareasRutinariasRef = useRef(guardarTareasRutinarias);
+  const cargarTareasRutinariasRef = useRef(cargarTareasRutinarias);
+
+  useEffect(() => {
+    guardarTareasRutinariasRef.current = guardarTareasRutinarias;
+  }, [guardarTareasRutinarias]);
+
+  useEffect(() => {
+    cargarTareasRutinariasRef.current = cargarTareasRutinarias;
+  }, [cargarTareasRutinarias]);
+
+  const guardarRutinasEnCola = (datos) => {
+    const guardado = colaGuardadoRutinasRef.current
+      .catch(() => undefined)
+      .then(() => guardarTareasRutinariasRef.current({ ...datos, inicializado: true }));
+    colaGuardadoRutinasRef.current = guardado;
+    return guardado;
+  };
+
+  const guardarMarcaSincronizacion = () => {
+    try {
+      localStorage.setItem(STORAGE_KEY_SINCRONIZACION, 'true');
+    } catch (error) {
+      console.error('No se pudo actualizar la marca de sincronización local:', error);
+    }
+  };
+
+  const limpiarMarcaSincronizacion = () => {
+    try {
+      localStorage.removeItem(STORAGE_KEY_SINCRONIZACION);
+    } catch (error) {
+      console.error('No se pudo invalidar la marca de sincronización local:', error);
+    }
+  };
+
+  const marcarDatosLocales = () => {
+    datosLocalesRef.current.hayDatosLocales = true;
+  };
+
+  const sincronizarSnapshotRutinas = async (datos) => {
+    if (temporizadorGuardadoRutinasRef.current) {
+      clearTimeout(temporizadorGuardadoRutinasRef.current);
+      temporizadorGuardadoRutinasRef.current = null;
+    }
+    setEstadoPersistencia('guardando');
+    try {
+      await guardarRutinasEnCola(datos);
+      guardarMarcaSincronizacion();
+      setEstadoPersistencia('guardado');
+    } catch (error) {
+      limpiarMarcaSincronizacion();
+      setEstadoPersistencia('error');
+      throw error;
+    }
+  };
 
   const analistasSoporte = useMemo(() => {
     if (!personal || personal.length === 0) return [];
@@ -230,23 +342,138 @@ export default function Tareas() {
   }, []);
 
   useEffect(() => {
-    if (tareas && tareas.length > 0) {
-      const noRutinarias = tareas.filter(t => t.tipo === 'no-rutinaria' && !t.completada);
-      setTareasNoRutinarias(noRutinarias);
-    }
+    const noRutinarias = (tareas || []).filter(t => t.tipo === 'no-rutinaria' && !t.completada);
+    setTareasNoRutinarias(noRutinarias);
   }, [tareas]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY_VALORES, JSON.stringify(valores));
-  }, [valores]);
+    let cancelado = false;
+
+    const hidratarRutinas = async () => {
+      setEstadoPersistencia('cargando');
+      try {
+        const remoto = await cargarTareasRutinariasRef.current();
+        if (cancelado) return;
+
+        const local = datosLocalesRef.current;
+        const sincronizadoAntes = localStorage.getItem(STORAGE_KEY_SINCRONIZACION) === 'true';
+        let datos;
+        let debeGuardar = false;
+
+        if (remoto.inicializado) {
+          if (!sincronizadoAntes && local.hayDatosLocales) {
+            datos = fusionarDatosRutinarios(remoto, local);
+            debeGuardar = true;
+          } else {
+            datos = {
+              secciones_rutinarias: Array.isArray(remoto.secciones_rutinarias) ? remoto.secciones_rutinarias : [],
+              valores_rutinarias: remoto.valores_rutinarias || {},
+              historico_reportes: Array.isArray(remoto.historico_reportes) ? remoto.historico_reportes : [],
+              inicializado: true,
+            };
+          }
+        } else {
+          datos = fusionarDatosRutinarios(
+            remoto,
+            local.hayDatosLocales
+              ? local
+              : { ...local, secciones_rutinarias: SECCIONES_BITACORA_INICIAL }
+          );
+          debeGuardar = true;
+        }
+
+        setSeccionesRutinarias(datos.secciones_rutinarias);
+        setValores(datos.valores_rutinarias);
+        setHistoricoReportes(datos.historico_reportes);
+        setRutinasHidratadas(true);
+
+        if (debeGuardar) {
+          setEstadoPersistencia('guardando');
+          await guardarRutinasEnCola(datos);
+          if (cancelado) return;
+        }
+
+        guardarMarcaSincronizacion();
+        setEstadoPersistencia('guardado');
+      } catch (error) {
+        if (cancelado) return;
+        limpiarMarcaSincronizacion();
+        console.error('No se pudieron cargar las tareas rutinarias del servidor:', error);
+        setEstadoPersistencia('error');
+      }
+    };
+
+    hidratarRutinas();
+    return () => {
+      cancelado = true;
+    };
+  }, [intentoCargaRutinas]);
 
   useEffect(() => {
-    localStorage.setItem('tareas_secciones_rutinarias', JSON.stringify(seccionesRutinarias));
-  }, [seccionesRutinarias]);
+    try {
+      localStorage.setItem(STORAGE_KEY_VALORES, JSON.stringify(valores));
+      localStorage.setItem('tareas_secciones_rutinarias', JSON.stringify(seccionesRutinarias));
+      localStorage.setItem('tareas_historico_reportes', JSON.stringify(historicoReportes));
+    } catch (error) {
+      limpiarMarcaSincronizacion();
+      console.error('No se pudo guardar la copia local de las tareas rutinarias:', error);
+      setEstadoPersistencia('error');
+    }
+
+    datosLocalesRef.current = {
+      valores_rutinarias: valores,
+      secciones_rutinarias: seccionesRutinarias,
+      historico_reportes: historicoReportes,
+      hayDatosLocales: datosLocalesRef.current.hayDatosLocales,
+    };
+  }, [valores, seccionesRutinarias, historicoReportes, rutinasHidratadas]);
+
+  useEffect(() => () => {
+    if (temporizadorGuardadoRutinasRef.current === null) return;
+
+    clearTimeout(temporizadorGuardadoRutinasRef.current);
+    temporizadorGuardadoRutinasRef.current = null;
+    const snapshotLocal = datosLocalesRef.current;
+    guardarRutinasEnCola({
+      secciones_rutinarias: snapshotLocal.secciones_rutinarias,
+      valores_rutinarias: snapshotLocal.valores_rutinarias,
+      historico_reportes: snapshotLocal.historico_reportes,
+    })
+      .then(guardarMarcaSincronizacion)
+      .catch(error => console.error('No se pudieron guardar los cambios pendientes al salir:', error));
+  }, []);
 
   useEffect(() => {
-    localStorage.setItem('tareas_historico_reportes', JSON.stringify(historicoReportes));
-  }, [historicoReportes]);
+    if (!rutinasHidratadas) return undefined;
+
+    const temporizador = setTimeout(async () => {
+      if (temporizadorGuardadoRutinasRef.current === temporizador) {
+        temporizadorGuardadoRutinasRef.current = null;
+      }
+      setEstadoPersistencia('guardando');
+      try {
+        await guardarRutinasEnCola({
+          secciones_rutinarias: seccionesRutinarias,
+          valores_rutinarias: valores,
+          historico_reportes: historicoReportes,
+        });
+        guardarMarcaSincronizacion();
+        setEstadoPersistencia('guardado');
+      } catch (error) {
+        limpiarMarcaSincronizacion();
+        console.error('No se pudieron sincronizar las tareas rutinarias:', error);
+        setEstadoPersistencia('error');
+      }
+    }, 700);
+    temporizadorGuardadoRutinasRef.current = temporizador;
+
+    return () => {
+      clearTimeout(temporizador);
+      if (temporizadorGuardadoRutinasRef.current === temporizador) {
+        temporizadorGuardadoRutinasRef.current = null;
+      }
+    };
+  }, [seccionesRutinarias, valores, historicoReportes, rutinasHidratadas]);
 
   const obtenerRangoSemana = () => {
     const hoy = new Date();
@@ -265,6 +492,7 @@ export default function Tareas() {
   };
 
   const toggleStatus = (itemId, dia, campo, valor) => {
+    marcarDatosLocales();
     const key = `${itemId}_${dia}_${campo}`;
     const current = valores[key] || '';
     const nuevoValor = current === valor ? '' : valor;
@@ -272,15 +500,18 @@ export default function Tareas() {
   };
 
   const handleInputChange = (itemId, dia, campo, valor) => {
+    marcarDatosLocales();
     setValores(prev => ({ ...prev, [`${itemId}_${dia}_${campo}`]: valor }));
   };
 
   const handleResponsableChange = (seccionId, dia, nombre) => {
+    marcarDatosLocales();
     setValores(prev => ({ ...prev, [`responsable_${seccionId}_${dia}_nombre`]: nombre }));
   };
 
   const agregarItemASeccion = (seccionId, nombreItem) => {
     if (!nombreItem || !nombreItem.trim()) { alert('El nombre no puede estar vacío.'); return; }
+    marcarDatosLocales();
     setSeccionesRutinarias(prev => prev.map(seccion => {
       if (seccion.id !== seccionId) return seccion;
       const nuevoId = `${seccion.id}-${Date.now()}`;
@@ -298,6 +529,7 @@ export default function Tareas() {
 
   const editarItem = (seccionId, itemId, nuevoNombre) => {
     if (!nuevoNombre || !nuevoNombre.trim()) { alert('El nombre no puede estar vacío.'); return; }
+    marcarDatosLocales();
     setSeccionesRutinarias(prev => prev.map(seccion => {
       if (seccion.id !== seccionId) return seccion;
       if (seccion.tipoContenido === 'mixed_backups') {
@@ -317,6 +549,10 @@ export default function Tareas() {
 
   const eliminarItem = (seccionId, itemId) => {
     if (!window.confirm('¿Está seguro de eliminar este elemento?')) return;
+    marcarDatosLocales();
+    setValores(prev => Object.fromEntries(
+      Object.entries(prev).filter(([key]) => !key.startsWith(`${itemId}_`))
+    ));
     setSeccionesRutinarias(prev => prev.map(seccion => {
       if (seccion.id !== seccionId) return seccion;
       if (seccion.tipoContenido === 'mixed_backups') {
@@ -352,6 +588,7 @@ export default function Tareas() {
   const confirmarEditarTitulo = (nuevoTitulo) => {
     const { seccionId } = modalEditarTitulo;
     if (!nuevoTitulo || !nuevoTitulo.trim()) { alert('El título no puede estar vacío.'); return; }
+    marcarDatosLocales();
     setSeccionesRutinarias(prev => prev.map(seccion => {
       if (seccion.id !== seccionId) return seccion;
       return { ...seccion, titulo: nuevoTitulo.trim() };
@@ -360,30 +597,50 @@ export default function Tareas() {
 
   const eliminarSeccion = (seccionId) => {
     if (!window.confirm('¿Está seguro de eliminar esta tarea y todos sus elementos?')) return;
-    setSeccionesRutinarias(prev => prev.filter(seccion => seccion.id !== seccionId));
-    setValores(prev => {
-      const nuevosValores = {};
-      Object.keys(prev).forEach(key => { if (!key.includes(seccionId)) nuevosValores[key] = prev[key]; });
-      return nuevosValores;
+    marcarDatosLocales();
+    const seccion = seccionesRutinarias.find(item => item.id === seccionId);
+    const idsItems = (seccion?.items || []).map(item => item.id);
+    (seccion?.subtablas || []).forEach(subtabla => {
+      idsItems.push(...(subtabla.items || []).map(item => item.id));
     });
+    setSeccionesRutinarias(prev => prev.filter(seccion => seccion.id !== seccionId));
+    setValores(prev => Object.fromEntries(
+      Object.entries(prev).filter(([key]) => (
+        !key.startsWith(`responsable_${seccionId}_`) &&
+        !idsItems.some(itemId => key.startsWith(`${itemId}_`))
+      ))
+    ));
   };
 
   const handleGuardarTarea = async (payload) => {
-    try {
+    if (payload.tipo !== 'rutinaria') {
       await agregarTarea(payload);
-      if (payload.tipo === 'rutinaria') agregarNuevaSeccion(payload);
       setModalTareaOpen(false);
       setTareaAEditar(null);
-    } catch (error) {
-      console.error('Error al guardar tarea:', error);
-      alert('Error al guardar la tarea.');
+      return;
     }
-  };
 
-  const agregarNuevaSeccion = (tareaData) => {
-    const nuevoId = `seccion-${Date.now()}`;
-    const nuevaSeccion = { id: nuevoId, titulo: tareaData.descripcion || 'Nueva Tarea', tipoContenido: 'solo_observacion', items: [] };
-    setSeccionesRutinarias(prev => [...prev, nuevaSeccion]);
+    if (!rutinasHidratadas) {
+      throw new Error('Las tareas rutinarias aún no se han cargado desde el servidor.');
+    }
+
+    const nuevaSeccion = {
+      id: `seccion-${Date.now()}`,
+      titulo: payload.descripcion || 'Nueva Tarea',
+      proyecto: payload.proyecto,
+      tipoContenido: 'solo_observacion',
+      items: [],
+    };
+    const seccionesActualizadas = [...seccionesRutinarias, nuevaSeccion];
+    await sincronizarSnapshotRutinas({
+      secciones_rutinarias: seccionesActualizadas,
+      valores_rutinarias: valores,
+      historico_reportes: historicoReportes,
+    });
+    marcarDatosLocales();
+    setSeccionesRutinarias(seccionesActualizadas);
+    setModalTareaOpen(false);
+    setTareaAEditar(null);
   };
 
   const abrirModalNuevaTareaRutinaria = () => {
@@ -462,10 +719,15 @@ export default function Tareas() {
   // ============================================================
   // GUARDAR REPORTE RUTINARIO
   // ============================================================
-  const handleGuardarRutinarias = (e) => {
+  const handleGuardarRutinarias = async (e) => {
     e.preventDefault();
+    if (!rutinasHidratadas) {
+      alert('Las tareas rutinarias aún no se han sincronizado. Reintente cuando se restablezca la conexión.');
+      return;
+    }
     setLoading(true);
-    setTimeout(() => {
+    try {
+      const valoresReportados = { ...valores };
       const codigo = generarCodigoCronograma('rutinarias');
       const nuevoReporte = {
         id: Date.now(),
@@ -473,26 +735,46 @@ export default function Tareas() {
         semanaTexto: obtenerRangoSemana(),
         hora: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         codigo: codigo,
-        datos: { ...valores },
+        datos: valoresReportados,
         seccionesSnapshot: JSON.parse(JSON.stringify(seccionesRutinarias)),
         tareasNoRutinarias: []
       };
-      setHistoricoReportes(prev => [nuevoReporte, ...prev]);
-      setValores({});
-      localStorage.removeItem(STORAGE_KEY_VALORES);
-      setLoading(false);
+      const reportesActualizados = [nuevoReporte, ...historicoReportes];
+      await sincronizarSnapshotRutinas({
+        secciones_rutinarias: seccionesRutinarias,
+        valores_rutinarias: {},
+        historico_reportes: reportesActualizados,
+      });
+      marcarDatosLocales();
+      setHistoricoReportes(reportesActualizados);
+      setValores(actuales => {
+        const restantes = { ...actuales };
+        Object.entries(valoresReportados).forEach(([key, value]) => {
+          if (restantes[key] === value) delete restantes[key];
+        });
+        return restantes;
+      });
       alert("¡Reporte de Tareas Rutinarias guardado con éxito! Los valores se han reiniciado para la nueva semana.");
-    }, 600);
+    } catch (error) {
+      console.error('Error al guardar el reporte rutinario:', error);
+      alert('No se pudo guardar el reporte. Los datos se conservaron; intente de nuevo.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   // ============================================================
   // GUARDAR REPORTE NO RUTINARIO
   // ============================================================
-  const handleGuardarNoRutinarias = (e) => {
+  const handleGuardarNoRutinarias = async (e) => {
     e.preventDefault();
     if (tareasNoRutinarias.length === 0) { alert("Debe agregar al menos una tarea no rutinaria antes de guardar el reporte."); return; }
+    if (!rutinasHidratadas) {
+      alert('Las tareas rutinarias aún no se han sincronizado. Reintente cuando se restablezca la conexión.');
+      return;
+    }
     setLoading(true);
-    setTimeout(() => {
+    try {
       const codigo = generarCodigoCronograma('no_rutinarias');
       const nuevoReporte = {
         id: Date.now(),
@@ -503,10 +785,21 @@ export default function Tareas() {
         datos: {},
         tareasNoRutinarias: [...tareasNoRutinarias]
       };
-      setHistoricoReportes(prev => [nuevoReporte, ...prev]);
+      const reportesActualizados = [nuevoReporte, ...historicoReportes];
+      await sincronizarSnapshotRutinas({
+        secciones_rutinarias: seccionesRutinarias,
+        valores_rutinarias: valores,
+        historico_reportes: reportesActualizados,
+      });
+      marcarDatosLocales();
+      setHistoricoReportes(reportesActualizados);
       alert("¡Reporte de Tareas No Rutinarias guardado con éxito!");
+    } catch (error) {
+      console.error('Error al guardar el reporte no rutinario:', error);
+      alert('No se pudo guardar el reporte. Los datos se conservaron; intente de nuevo.');
+    } finally {
       setLoading(false);
-    }, 600);
+    }
   };
 
   const lanzarDescargaPDF = (reporte) => {
@@ -615,16 +908,46 @@ export default function Tareas() {
           <form onSubmit={handleGuardarRutinarias} className="bg-white border-x border-b border-slate-200 rounded-b-xl shadow-sm p-5 space-y-10">
             <div className="space-y-10">
               <div className="flex items-center justify-between border-b pb-2">
-                <h2 className="text-sm font-extrabold text-blue-600 tracking-wider uppercase">I. CONTROL DE TAREAS RUTINARIAS</h2>
-                {puedeCrear && (
-                  <button
-                    type="button"
-                    onClick={abrirModalNuevaTareaRutinaria}
-                    className="flex items-center gap-2 px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-md transition-all"
+                <div>
+                  <h2 className="text-sm font-extrabold text-blue-600 tracking-wider uppercase">I. CONTROL DE TAREAS RUTINARIAS</h2>
+                  <p
+                    role="status"
+                    aria-live="polite"
+                    className={`mt-1 text-xs font-semibold ${
+                      estadoPersistencia === 'error'
+                        ? 'text-rose-600'
+                        : estadoPersistencia === 'guardado'
+                          ? 'text-emerald-600'
+                          : 'text-slate-500'
+                    }`}
                   >
-                    <Plus size={16} /> Registrar Nueva Tarea
-                  </button>
-                )}
+                    {estadoPersistencia === 'cargando' && 'Cargando desde el servidor...'}
+                    {estadoPersistencia === 'guardando' && 'Sincronizando cambios...'}
+                    {estadoPersistencia === 'guardado' && 'Cambios sincronizados'}
+                    {estadoPersistencia === 'error' && 'Error de conexión. Los cambios siguen guardados localmente.'}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  {estadoPersistencia === 'error' && (
+                    <button
+                      type="button"
+                      onClick={() => setIntentoCargaRutinas(valor => valor + 1)}
+                      className="px-3 py-2 text-xs font-bold text-rose-700 border border-rose-200 rounded-lg hover:bg-rose-50"
+                    >
+                      Reintentar sincronización
+                    </button>
+                  )}
+                  {puedeCrear && (
+                    <button
+                      type="button"
+                      onClick={abrirModalNuevaTareaRutinaria}
+                      disabled={!rutinasHidratadas}
+                      className="flex items-center gap-2 px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <Plus size={16} /> Registrar Nueva Tarea
+                    </button>
+                  )}
+                </div>
               </div>
 
               {seccionesRutinarias.map((seccion) => {
@@ -832,7 +1155,7 @@ export default function Tareas() {
               })}
             </div>
             <div className="flex justify-end pt-3">
-              <button type="submit" disabled={loading} className={`text-white text-sm font-semibold px-6 py-2.5 rounded-lg shadow-md transition-all flex items-center space-x-2 ${loading ? 'bg-blue-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 active:scale-[0.98]'}`}>
+              <button type="submit" disabled={loading || !rutinasHidratadas} className={`text-white text-sm font-semibold px-6 py-2.5 rounded-lg shadow-md transition-all flex items-center space-x-2 ${loading || !rutinasHidratadas ? 'bg-blue-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 active:scale-[0.98]'}`}>
                 {loading ? <span>Guardando...</span> : <span>Guardar Reporte Rutinario</span>}
               </button>
             </div>
@@ -958,7 +1281,7 @@ export default function Tareas() {
             </div>
 
             <div className="flex justify-end pt-3">
-              <button type="submit" disabled={loading} className={`text-white text-sm font-semibold px-6 py-2.5 rounded-lg shadow-md transition-all flex items-center space-x-2 ${loading ? 'bg-amber-400 cursor-not-allowed' : 'bg-amber-600 hover:bg-amber-700 active:scale-[0.98]'}`}>
+              <button type="submit" disabled={loading || !rutinasHidratadas} className={`text-white text-sm font-semibold px-6 py-2.5 rounded-lg shadow-md transition-all flex items-center space-x-2 ${loading || !rutinasHidratadas ? 'bg-amber-400 cursor-not-allowed' : 'bg-amber-600 hover:bg-amber-700 active:scale-[0.98]'}`}>
                 {loading ? <span>Guardando...</span> : <span>Guardar Reporte No Rutinario</span>}
               </button>
             </div>
