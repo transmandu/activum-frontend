@@ -421,7 +421,7 @@ const ModalOrdenSalida = ({ isOpen, onClose, ordenAEditar = null }) => {
         {/* Botones */}
         <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-3 shrink-0 rounded-b-xl">
           <button type="button" onClick={onClose} disabled={isSubmitting} className="px-4 py-2 bg-white hover:bg-slate-100 text-slate-500 rounded-lg text-xs font-bold border border-slate-200 cursor-pointer transition-colors disabled:opacity-50">Cancelar</button>
-          <button type="submit" onClick={handleSubmit} disabled={isSubmitting} className="w-36 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold border-0 cursor-pointer transition-colors shadow-md shadow-blue-600/10 flex items-center justify-center gap-1.5 disabled:bg-blue-400">
+          <button type="submit" disabled={isSubmitting} className="w-36 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold border-0 cursor-pointer transition-colors shadow-md shadow-blue-600/10 flex items-center justify-center gap-1.5 disabled:bg-blue-400">
             {isSubmitting ? <><Loader2 size={13} className="animate-spin" /> <span>Guardando...</span></> : <><FileText size={13} /> <span>{ordenAEditar ? 'Actualizar' : 'Generar Pase'}</span></>}
           </button>
         </div>

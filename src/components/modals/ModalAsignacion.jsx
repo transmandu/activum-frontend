@@ -606,7 +606,7 @@ const ModalAsignacion = ({ isOpen, onClose, asignacionAEditar = null }) => {
 
         <div className="px-6 py-4 bg-white border-t border-slate-200 flex justify-end gap-3 shrink-0">
           <button type="button" onClick={onClose} className="px-5 py-2 text-sm font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl">Cancelar</button>
-          <button type="submit" onClick={handleSubmit} disabled={isSubmitting} className="px-6 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-md flex items-center gap-2">
+          <button type="submit" disabled={isSubmitting} className="px-6 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-md flex items-center gap-2">
             {isSubmitting ? <><Loader2 size={16} className="animate-spin" /> Procesando</> : <><UserCheck size={16} /> {asignacionAEditar ? 'Actualizar' : 'Crear Asignación'}</>}
           </button>
         </div>

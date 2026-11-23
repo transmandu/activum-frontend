@@ -273,6 +273,11 @@ const ModalActivo = ({ isOpen, onClose, onAgregarActivo, activoAEditar }) => {
   }, [isOpen, activoAEditar]);
 
   const handleMarcaCreada = (nuevaMarca) => {
+    setMarcasFiltradas(prev => (
+      prev.some(marca => String(marca.id) === String(nuevaMarca.id))
+        ? prev
+        : [...prev, nuevaMarca]
+    ));
     setForm(prev => ({ ...prev, marca_id: nuevaMarca.id, modelo_id: '' }));
   };
 
@@ -918,14 +923,14 @@ const ModalActivo = ({ isOpen, onClose, onAgregarActivo, activoAEditar }) => {
 
         <div className="px-6 py-4 bg-white border-t border-slate-200 flex justify-end gap-3 shrink-0">
           <button type="button" onClick={onClose} disabled={isSubmitting} className="px-5 py-2 text-sm font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition">Cancelar</button>
-          <button type="submit" onClick={handleSubmit} disabled={isSubmitting} className="px-6 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-md transition flex items-center gap-2 disabled:opacity-50">
+          <button type="submit" disabled={isSubmitting} className="px-6 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-md transition flex items-center gap-2 disabled:opacity-50">
             {isSubmitting ? 'Guardando...' : <><Save size={16} /> {activoAEditar ? 'Actualizar' : 'Registrar'}</>}
           </button>
         </div>
       </div>
 
       <ModalMarcaRapida isOpen={modalMarcaRapidaOpen} onClose={() => setModalMarcaRapidaOpen(false)} onMarcaCreada={handleMarcaCreada} />
-      <ModalModeloRapido isOpen={modalModeloRapidoOpen} onClose={() => setModalModeloRapidoOpen(false)} marcaId={(() => { const marcaSeleccionada = marcasFiltradas.find(m => (m.nombre || '').toLowerCase() === (form.marca_nombre || '').trim().toLowerCase()); return marcaSeleccionada?.id || null; })()} onModeloCreado={handleModeloCreado} />
+      <ModalModeloRapido isOpen={modalModeloRapidoOpen} onClose={() => setModalModeloRapidoOpen(false)} marcaId={form.marca_id || null} onModeloCreado={handleModeloCreado} />
     </div>
   );
 };

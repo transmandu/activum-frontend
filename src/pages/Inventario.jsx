@@ -300,6 +300,30 @@ const Inventario = () => {
   // ============================================================
   // EXPORTACIONES
   // ============================================================
+  const obtenerFilasInventarioExportacion = () => consumiblesFiltrados.flatMap((item) => {
+    const datosComunes = {
+      Nombre: item.nombre,
+      Tipo: item.categoria?.nombre || 'N/A',
+      Modelo: item.modelo?.nombre || 'N/A',
+      'Stock Mínimo': item.stock_minimo || 'N/A',
+      Descripción: item.descripcion || '',
+    };
+
+    if (item.colores?.length > 0) {
+      return item.colores.map((colorItem) => ({
+        ...datosComunes,
+        Cantidad: parseInt(colorItem.cantidad, 10) || 0,
+        Color: colorItem.color || 'N/A',
+      }));
+    }
+
+    return [{
+      ...datosComunes,
+      Cantidad: item.cantidad || 0,
+      Color: item.color || 'N/A',
+    }];
+  });
+
   const exportarPDF = () => {
     if (consumiblesFiltrados.length === 0) return alert('No hay elementos para exportar.');
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
@@ -315,14 +339,14 @@ const Inventario = () => {
     doc.text('TRANSMANDU, C.A.', 15, 22);
     doc.text(`Fecha de emisión: ${new Date().toLocaleDateString('es-ES')}`, 15, 28);
     
-    const body = consumiblesFiltrados.map((item, idx) => [
+    const body = obtenerFilasInventarioExportacion().map((item, idx) => [
       idx + 1,
-      item.nombre,
-      item.categoria?.nombre || 'N/A',
-      item.modelo?.nombre || 'N/A',
-      item.cantidad || 0,
-      item.stock_minimo || '-',
-      item.colores?.length > 0 ? item.colores.map(c => c.color).join(', ') : (item.color || '-')
+      item.Nombre,
+      item.Tipo,
+      item.Modelo,
+      item.Cantidad,
+      item['Stock Mínimo'],
+      item.Color
     ]);
     
     autoTable(doc, {
@@ -338,15 +362,7 @@ const Inventario = () => {
 
   const exportarExcel = () => {
     if (consumiblesFiltrados.length === 0) return alert('No hay consumibles para exportar.');
-    const data = consumiblesFiltrados.map((item) => ({
-      Nombre: item.nombre,
-      Tipo: item.categoria?.nombre || 'N/A',
-      Modelo: item.modelo?.nombre || 'N/A',
-      Cantidad: item.cantidad || 0,
-      'Stock Mínimo': item.stock_minimo || 'N/A',
-      Color: item.colores?.length > 0 ? item.colores.map(c => c.color).join(', ') : (item.color || 'N/A'),
-      Descripción: item.descripcion || '',
-    }));
+    const data = obtenerFilasInventarioExportacion();
     const hoja = XLSX.utils.json_to_sheet(data);
     const libro = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(libro, hoja, 'Inventario_IT');
