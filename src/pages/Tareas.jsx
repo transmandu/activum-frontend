@@ -115,6 +115,8 @@ const STORAGE_KEY_VALORES = 'tareas_valores_rutinarias';
 const STORAGE_KEY_VALORES_POR_SEMANA = 'tareas_valores_rutinarias_por_semana';
 const STORAGE_KEY_SEMANA_VALORES = 'tareas_rutinarias_semana_valores';
 const STORAGE_KEY_SINCRONIZACION = 'tareas_rutinarias_backend_sincronizadas';
+const ID_RESPONSABLE_RUTINARIO = 'responsable_rutinario';
+const ID_SECCION_RESPONSABLE_LEGACY = 'respaldo_correos_avpro';
 
 const leerJsonLocal = (key, fallback) => {
   try {
@@ -620,9 +622,15 @@ export default function Tareas() {
     setValores(prev => ({ ...prev, [`${itemId}_${dia}_${campo}`]: valor }));
   };
 
-  const handleResponsableChange = (seccionId, dia, nombre) => {
+  const obtenerResponsableRutinario = (valoresFuente, dia) => (
+    valoresFuente[`responsable_${ID_RESPONSABLE_RUTINARIO}_${dia}_nombre`]
+    || valoresFuente[`responsable_${ID_SECCION_RESPONSABLE_LEGACY}_${dia}_nombre`]
+    || ''
+  );
+
+  const handleResponsableChange = (dia, nombre) => {
     marcarDatosLocales();
-    setValores(prev => ({ ...prev, [`responsable_${seccionId}_${dia}_nombre`]: nombre }));
+    setValores(prev => ({ ...prev, [`responsable_${ID_RESPONSABLE_RUTINARIO}_${dia}_nombre`]: nombre }));
   };
 
   const agregarItemASeccion = (seccionId, nombreItem) => {
@@ -724,7 +732,6 @@ export default function Tareas() {
     setSeccionesRutinarias(prev => prev.filter(seccion => seccion.id !== seccionId));
     setValores(prev => Object.fromEntries(
       Object.entries(prev).filter(([key]) => (
-        !key.startsWith(`responsable_${seccionId}_`) &&
         !idsItems.some(itemId => key.startsWith(`${itemId}_`))
       ))
     ));
@@ -872,9 +879,16 @@ export default function Tareas() {
   // FUNCIÓN PARA GENERAR CÓDIGO CORRELATIVO
   // ============================================================
   const generarCodigoCronograma = (tipo) => {
-    const reportesDelTipo = historicoReportes.filter(r => r.tipoReporte === tipo);
-    const siguienteNumero = reportesDelTipo.length + 1;
+    const numerosUsados = historicoReportes
+      .filter(r => r.tipoReporte === tipo)
+      .map(r => Number(String(r.codigo || '').match(/(\d+)$/)?.[1] || 0))
+      .filter(Number.isFinite);
+    const siguienteNumero = Math.max(0, ...numerosUsados) + 1;
     return `TMD-DIP-CRO-${String(siguienteNumero).padStart(5, '0')}`;
+  };
+
+  const bloquearEnvioConEnter = (e) => {
+    if (e.key === 'Enter') e.preventDefault();
   };
 
   // ============================================================
@@ -952,6 +966,27 @@ export default function Tareas() {
     } catch (error) {
       console.error('Error al guardar el reporte no rutinario:', error);
       alert('No se pudo guardar el reporte. Los datos se conservaron; intente de nuevo.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleEliminarReporte = async (reporteId) => {
+    if (!window.confirm('¿Está seguro de eliminar este reporte? Esta acción no se puede deshacer.')) return;
+
+    const reportesActualizados = historicoReportes.filter(reporte => String(reporte.id) !== String(reporteId));
+    setLoading(true);
+    try {
+      await sincronizarSnapshotRutinas({
+        secciones_rutinarias: seccionesRutinarias,
+        valores_rutinarias: valores,
+        historico_reportes: reportesActualizados,
+      });
+      marcarDatosLocales();
+      setHistoricoReportes(reportesActualizados);
+    } catch (error) {
+      console.error('Error al eliminar el reporte:', error);
+      alert('No se pudo eliminar el reporte. Intente de nuevo.');
     } finally {
       setLoading(false);
     }
@@ -1068,7 +1103,7 @@ export default function Tareas() {
 
         {/* TAREAS RUTINARIAS */}
         {tabActiva === 'rutinarias' && (
-          <form onSubmit={handleGuardarRutinarias} className="bg-white border-x border-b border-slate-200 rounded-b-xl shadow-sm p-5 space-y-10">
+          <form onSubmit={handleGuardarRutinarias} onKeyDown={bloquearEnvioConEnter} className="bg-white border-x border-b border-slate-200 rounded-b-xl shadow-sm p-5 space-y-10">
             <div className="space-y-10">
               <div className="flex items-center justify-between border-b pb-2">
                 <div>
@@ -1352,23 +1387,6 @@ export default function Tareas() {
                                 ))}
                               </React.Fragment>
                             ))}
-                            {/* FILA DE RESPONSABLE para mixed_backups */}
-                            <tr className="bg-slate-50/60 font-medium">
-                              <td className="p-3 font-bold text-slate-500 bg-slate-100/30 border-r border-slate-200 text-center tracking-wide text-[10px]">RESPONSABLE</td>
-                              {DIAS_SEMANA.map((dia) => {
-                                const valorActual = valoresVisibles[`responsable_${seccion.id}_${dia.clave}_nombre`] || '';
-                                return (
-                                  <td key={dia.clave} className="p-2 border-r last:border-r-0 border-slate-200">
-                                    <select className="w-full px-1.5 py-1 border border-slate-200 rounded text-[10px] font-semibold text-center uppercase focus:outline-none focus:border-blue-500 bg-white shadow-sm" value={valorActual} onChange={(e) => handleResponsableChange(seccion.id, dia.clave, e.target.value)}>
-                                      <option value="">-- Seleccionar --</option>
-                                      {analistasSoporte.map((p) => (
-                                        <option key={p.id} value={p.nombre_completo}>{p.nombre_completo}</option>
-                                      ))}
-                                    </select>
-                                  </td>
-                                );
-                              })}
-                            </tr>
                           </>
                         )}
                       </tbody>
@@ -1376,6 +1394,29 @@ export default function Tareas() {
                   </div>
                 );
               })}
+              <div className="overflow-x-auto border border-slate-200 rounded-lg shadow-inner bg-white">
+                <table className="w-full text-left border-collapse min-w-212.5">
+                  <tbody>
+                    <tr className="bg-slate-50/60 font-medium">
+                      <td className="p-3 font-bold text-slate-500 bg-slate-100/30 border-r border-slate-200 text-center tracking-wide text-[10px]">RESPONSABLE</td>
+                      {DIAS_SEMANA.map((dia) => (
+                        <td key={dia.clave} className="p-2 border-r last:border-r-0 border-slate-200">
+                          <select
+                            className="w-full px-1.5 py-1 border border-slate-200 rounded text-[10px] font-semibold text-center uppercase focus:outline-none focus:border-blue-500 bg-white shadow-sm"
+                            value={obtenerResponsableRutinario(valoresVisibles, dia.clave)}
+                            onChange={(e) => handleResponsableChange(dia.clave, e.target.value)}
+                          >
+                            <option value="">-- Seleccionar --</option>
+                            {analistasSoporte.map((p) => (
+                              <option key={p.id} value={p.nombre_completo}>{p.nombre_completo}</option>
+                            ))}
+                          </select>
+                        </td>
+                      ))}
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
               </fieldset>
             </div>
             <div className="flex justify-end pt-3">
@@ -1388,7 +1429,7 @@ export default function Tareas() {
 
         {/* TAREAS NO RUTINARIAS */}
         {tabActiva === 'no_rutinarias' && (
-          <form onSubmit={handleGuardarNoRutinarias} className="bg-white border-x border-b border-slate-200 rounded-b-xl shadow-sm p-5 space-y-6">
+          <form onSubmit={handleGuardarNoRutinarias} onKeyDown={bloquearEnvioConEnter} className="bg-white border-x border-b border-slate-200 rounded-b-xl shadow-sm p-5 space-y-6">
             <div className="flex justify-between items-center border-b pb-2">
               <h2 className="text-sm font-extrabold text-amber-600 tracking-wider uppercase">II. REGISTRO DE TAREAS NO RUTINARIAS</h2>
               <span className="text-xs bg-amber-100 text-amber-800 px-2 py-1 rounded-full font-bold">{tareasNoRutinarias.length} registradas</span>
@@ -1542,9 +1583,16 @@ export default function Tareas() {
                         </div>
                       )}
                     </div>
-                    <button type="button" onClick={() => lanzarDescargaPDF(reporte)} className="text-xs font-semibold text-white bg-emerald-600 px-4 py-2 rounded-lg shadow-sm hover:bg-emerald-700 transition-colors self-start md:self-center">
-                      Descargar PDF
-                    </button>
+                    <div className="flex items-center gap-2 self-start md:self-center">
+                      <button type="button" onClick={() => lanzarDescargaPDF(reporte)} className="text-xs font-semibold text-white bg-emerald-600 px-4 py-2 rounded-lg shadow-sm hover:bg-emerald-700 transition-colors">
+                        Descargar PDF
+                      </button>
+                      {puedeEliminar && (
+                        <button type="button" onClick={() => handleEliminarReporte(reporte.id)} disabled={loading} className="text-xs font-semibold text-white bg-rose-600 px-4 py-2 rounded-lg shadow-sm hover:bg-rose-700 transition-colors disabled:cursor-not-allowed disabled:opacity-50">
+                          Eliminar
+                        </button>
+                      )}
+                    </div>
                   </div>
                 );
               })}
@@ -1777,21 +1825,24 @@ export default function Tareas() {
                                 ))}
                               </React.Fragment>
                             ))}
-                            {/* FILA DE RESPONSABLE para mixed_backups en PDF */}
-                            <tr className="bg-gray-50">
-                              <td className="border border-black p-1 font-bold text-right pr-2">RESPONSABLE:</td>
-                              {DIAS_SEMANA.map((dia) => (
-                                <td key={dia.clave} className="border border-black p-1 font-bold italic text-[7px]">
-                                  {reporteParaImprimir.datos[`responsable_${seccion.id}_${dia.clave}_nombre`] || '-'}
-                                </td>
-                              ))}
-                            </tr>
                           </>
                         )}
                       </tbody>
                     </table>
                   </div>
                 ))}
+                <table className="w-full border-collapse border border-black">
+                  <tbody>
+                    <tr className="bg-gray-50">
+                      <td className="border border-black p-1 font-bold text-right pr-2">RESPONSABLE:</td>
+                      {DIAS_SEMANA.map((dia) => (
+                        <td key={dia.clave} className="border border-black p-1 font-bold italic text-[7px]">
+                          {obtenerResponsableRutinario(reporteParaImprimir.datos, dia.clave) || '-'}
+                        </td>
+                      ))}
+                    </tr>
+                  </tbody>
+                </table>
               </div>
             ) : (
               <div style={{ pageBreakInside: 'avoid' }}>
